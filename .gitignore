@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+**/.vite/
+*.log
+
+# Rust / wasm-pack
+crates/solver/target/
+crates/solver/pkg/
+
+# Editor
+.DS_Store
+*.code-workspace
+.vscode/
+
+# Env
+*.env
+*.env.*
