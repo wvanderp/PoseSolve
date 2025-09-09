@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type PixelPoint = { id: string; u: number; v: number; sigmaPx?: number; enabled?: boolean };
+export type PixelPoint = { id: string; u: number; v: number; sigmaPx?: number; enabled?: boolean; height?: number };
 export type WorldPoint = { id: string; lat: number; lon: number; alt?: number; sigmaM?: number };
 export type Link = { pixelId: string; worldId: string };
 
@@ -17,6 +17,7 @@ type State = {
   setImage: (img: ImageInfo | null) => void;
   addPixelPoint: (p: Omit<PixelPoint, 'id'> & { id?: string }) => string;
   movePixelPoint: (id: string, u: number, v: number) => void;
+  updatePixelPointHeight: (id: string, height: number) => void;
   removePixelPoint: (id: string) => void;
   addWorldPoint: (p: Omit<WorldPoint, 'id'> & { id?: string }) => string;
   moveWorldPoint: (id: string, lat: number, lon: number) => void;
@@ -25,6 +26,7 @@ type State = {
   unlinkByPixel: (pixelId: string) => void;
   setActivePixel: (id: string | null) => void;
   setActiveWorld: (id: string | null) => void;
+  selectLinkedPoint: (pointId: string, pointType: 'pixel' | 'world') => void;
 };
 
 let _idCounter = 0;
@@ -47,11 +49,14 @@ export const useStore = create<State>((set, get) => ({
   setImage: (img) => set({ image: img }),
   addPixelPoint: (p) => {
     const id = p.id ?? genId('px');
-    set((s) => ({ pixelPoints: [...s.pixelPoints, { id, enabled: true, sigmaPx: 1, ...p }] }));
+    set((s) => ({ pixelPoints: [...s.pixelPoints, { id, enabled: true, sigmaPx: 1, height: 0, ...p }] }));
     return id;
   },
   movePixelPoint: (id, u, v) => set((s) => ({
     pixelPoints: s.pixelPoints.map(pp => pp.id === id ? { ...pp, u, v } : pp)
+  })),
+  updatePixelPointHeight: (id, height) => set((s) => ({
+    pixelPoints: s.pixelPoints.map(pp => pp.id === id ? { ...pp, height } : pp)
   })),
   removePixelPoint: (id) => set((s) => ({
     pixelPoints: s.pixelPoints.filter(pp => pp.id !== id),
@@ -80,6 +85,18 @@ export const useStore = create<State>((set, get) => ({
   unlinkByPixel: (pixelId) => set((s) => ({ links: s.links.filter(l => l.pixelId !== pixelId) })),
   setActivePixel: (id) => set({ activePixelId: id }),
   setActiveWorld: (id) => set({ activeWorldId: id }),
+  selectLinkedPoint: (pointId, pointType) => {
+    const state = get();
+    if (pointType === 'pixel') {
+      // Find linked world point
+      const link = state.links.find(l => l.pixelId === pointId);
+      set({ activePixelId: pointId, activeWorldId: link?.worldId || null });
+    } else {
+      // Find linked pixel point  
+      const link = state.links.find(l => l.worldId === pointId);
+      set({ activeWorldId: pointId, activePixelId: link?.pixelId || null });
+    }
+  },
 }));
 
 export const selectors = {
