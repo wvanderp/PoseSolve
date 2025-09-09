@@ -4,7 +4,7 @@ Rust crate compiled to WebAssembly via wasm-bindgen.
 
 Build locally:
 
-```
+```bash
 wasm-pack build crates/solver --target web --release
 ```
 
