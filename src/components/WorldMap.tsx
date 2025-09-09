@@ -49,9 +49,7 @@ export default function WorldMap({ height = 500 }: Props) {
       setActiveWorld(worldId);
       
       // If there's an image, automatically add a pixel point in the center and link them
-      console.log('Map clicked, checking image:', image);
       if (image && image.width >= 1 && image.height >= 1) {
-        console.log('Adding pixel point and linking');
         const pixelId = addPixelPoint({ 
           u: image.width / 2, 
           v: image.height / 2, 
@@ -60,9 +58,6 @@ export default function WorldMap({ height = 500 }: Props) {
           height: 0 
         });
         linkPoints(pixelId, worldId);
-        console.log('Linked', pixelId, 'to', worldId);
-      } else {
-        console.log('No image or invalid dimensions');
       }
     });
 

@@ -600,10 +600,48 @@ describe('ImageCanvas (component)', () => {
       // @ts-ignore
       cy.mount(<ImageCanvas height={200} />);
 
-      cy.contains('Left-click to add/move').should('be.visible');
-      cy.contains('right-click a point to delete').should('be.visible');
-      cy.contains('Hold Shift and drag to pan').should('be.visible');
-      cy.contains('Mouse wheel to zoom').should('be.visible');
+      cy.contains('Double-click to add points').should('be.visible');
+      cy.contains('left-click to select').should('be.visible');
+      cy.contains('drag to move or pan').should('be.visible');
+      cy.contains('Delete button removes selected point').should('be.visible');
+    });
+
+    it('shows delete button when point is selected', () => {
+      setTestImage(200, 200, 'test.svg');
+      useStore.setState({ pixelPoints: [{ id: 'test-point', u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 }] });
+      
+      // @ts-ignore
+      cy.mount(<ImageCanvas height={200} />);
+
+      // Click on the point to select it
+      cy.get('[data-testid="canvas"]').click(100, 100);
+
+      // Delete button should appear
+      cy.get('[data-testid="delete-point"]').should('be.visible');
+      
+      // Click delete button
+      cy.get('[data-testid="delete-point"]').click();
+      
+      // Point should be removed
+      cy.then(() => {
+        const state = useStore.getState();
+        expect(state.pixelPoints).to.have.length(0);
+      });
+    });
+
+    it('shows height editing overlay for selected point', () => {
+      setTestImage(200, 200, 'test.svg');
+      useStore.setState({ pixelPoints: [{ id: 'test-point', u: 100, v: 100, sigmaPx: 1, enabled: true, height: 5 }] });
+      
+      // @ts-ignore  
+      cy.mount(<ImageCanvas height={200} />);
+
+      // Click on the point to select it
+      cy.get('[data-testid="canvas"]').click(100, 100);
+
+      // Height editing overlay should appear
+      cy.contains('Height:').should('be.visible');
+      cy.contains('5m').should('be.visible');
     });
   });
 });
