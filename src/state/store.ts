@@ -24,6 +24,10 @@ export type Selectors = {
 
 type State = {
   image: ImageInfo | null;
+  // center of the image canvas in pixel coordinates (u,v)
+  imageCenter: { u: number; v: number };
+  // center of the world/map in lat/lon; may be null until map initializes
+  mapCenter: { lat: number; lon: number } | null;
   points: Point[];
   activePointId: string | null;
   // UI view state (moved from component-local state)
@@ -36,6 +40,8 @@ type State = {
   setZoom: (z: number) => void;
   setPanOffset: (p: { x: number; y: number }) => void;
   setEditingHeight: (id: string | null) => void;
+  setImageCenter: (u: number, v: number) => void;
+  setMapCenter: (lat: number, lon: number) => void;
   addPoint: (p: Partial<Point> & { id?: string }) => string;
   updatePointImage: (id: string, u: number, v: number) => void;
   updatePointWorld: (id: string, lat: number, lon: number) => void;
@@ -63,6 +69,10 @@ export const useStore = create<State>((set, get) => ({
     height: 2448,
     name: 'Coolhaven Rotterdam (default)'
   },
+  // initialize image center to middle of placeholder image
+  imageCenter: { u: 3264 / 2, v: 2448 / 2 },
+  // map center unknown until WorldMap sets it
+  mapCenter: null,
   points: [],
   activePointId: null,
   // default view state
@@ -70,13 +80,42 @@ export const useStore = create<State>((set, get) => ({
   panOffset: { x: 0, y: 0 },
   editingHeightId: null,
   setImage: (img) => set({ image: img }),
+  setImageCenter: (u, v) => set({ imageCenter: { u, v } }),
+  setMapCenter: (lat, lon) => set({ mapCenter: { lat, lon } }),
   setZoom: (z) => set({ zoom: z }),
   setPanOffset: (p) => set({ panOffset: p }),
   setEditingHeight: (id) => set({ editingHeightId: id }),
   addPoint: (p) => {
     const id = p.id ?? genId('pt');
     const defaults: Partial<Point> = { enabled: true, sigmaPx: 1, height: 0 };
-    set((s) => ({ points: [...s.points, { id, ...defaults, ...p }] }));
+    // populate missing side from known centers where possible
+    const state = get();
+    const filled: Partial<Point> = { ...defaults, ...p };
+
+    const hasImage = typeof p.u === 'number' && typeof p.v === 'number';
+    const hasWorld = typeof p.lat === 'number' && typeof p.lon === 'number';
+
+    // If user supplied image coords but not world coords, use current map center
+    if (hasImage && !hasWorld && state.mapCenter) {
+      filled.lat = state.mapCenter.lat;
+      filled.lon = state.mapCenter.lon;
+    }
+    // If user supplied world coords but not image coords, use current image center
+    if (hasWorld && !hasImage && state.imageCenter) {
+      filled.u = state.imageCenter.u;
+      filled.v = state.imageCenter.v;
+    }
+    // If neither side supplied, fall back to centers (image center always exists)
+    if (!hasImage && !hasWorld) {
+      filled.u = filled.u ?? state.imageCenter.u;
+      filled.v = filled.v ?? state.imageCenter.v;
+      if (state.mapCenter) {
+        filled.lat = filled.lat ?? state.mapCenter.lat;
+        filled.lon = filled.lon ?? state.mapCenter.lon;
+      }
+    }
+
+    set((s) => ({ points: [...s.points, { id, ...filled }] }));
     return id;
   },
   updatePointImage: (id, u, v) => set((s) => ({

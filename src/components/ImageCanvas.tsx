@@ -132,9 +132,12 @@ import { fileToDataUrl, loadImage } from "../utils/image";
  *   prioritized next step.
  */
 
-type Props = { height?: number };
+type Props = { height?: number; showLocalDelete?: boolean };
 
-export default function ImageCanvas({ height = 520 }: Props) {
+export default function ImageCanvas({
+  height = 520,
+  showLocalDelete = true,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [imgEl, setImgEl] = useState<HTMLImageElement | null>(null);
   // view state: move persistent values into the store
@@ -168,6 +171,7 @@ export default function ImageCanvas({ height = 520 }: Props) {
   const updatePointHeight = useStore((state) => state.updatePointHeight);
   const selectLinkedPoint = useStore((state) => state.selectLinkedPoint);
   const setImage = useStore((state) => state.setImage);
+  const setImageCenter = useStore((state) => state.setImageCenter);
 
   // Constants
   const MARKER_RADIUS = 5;
@@ -615,6 +619,13 @@ export default function ImageCanvas({ height = 520 }: Props) {
           if (zoom === 1) {
             setPanOffset(centerPan(1));
           }
+          // update image center in store (center of canvas -> image coords)
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const canvasCenter = { x: canvas.width / 2, y: canvas.height / 2 };
+            const imgCenter = screenToImage(canvasCenter.x, canvasCenter.y);
+            setImageCenter(imgCenter.u, imgCenter.v);
+          }
         })
         .catch((error) => {
           console.error("Failed to load image:", error);
@@ -623,6 +634,15 @@ export default function ImageCanvas({ height = 520 }: Props) {
         });
     }
   }, [image?.url, imgEl, zoom, centerPan]);
+
+  // update image center whenever pan/zoom/image change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+    const canvasCenter = { x: canvas.width / 2, y: canvas.height / 2 };
+    const imgCenter = screenToImage(canvasCenter.x, canvasCenter.y);
+    setImageCenter(imgCenter.u, imgCenter.v);
+  }, [panOffset, zoom, image, screenToImage, setImageCenter]);
 
   return (
     <div>
@@ -672,7 +692,7 @@ export default function ImageCanvas({ height = 520 }: Props) {
           >
             Reset Pan
           </button>
-          {selectedPointId && (
+          {showLocalDelete && selectedPointId && (
             <button
               onClick={() => {
                 removePoint(selectedPointId);

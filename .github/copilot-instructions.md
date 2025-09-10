@@ -82,7 +82,7 @@ npm run build
 ### Type Checking
 
 ```bash
-npx tsc --noEmit --skipLibCheck
+npm run lint
 ```
 
 - **Takes ~5 seconds**. NEVER CANCEL.
@@ -146,7 +146,10 @@ npm run dev                    # ~200ms startup
 npm run build                  # ~2 seconds
 
 # Type checking
-npx tsc --noEmit --skipLibCheck   # ~5 seconds
+npm run lint   # ~5 seconds
+
+# Run the tests
+npm run test                   # ~5 minutes
 
 # WASM rebuild (after Rust changes)
 npm run build:wasm            # ~10 seconds initially, <1s incremental

@@ -3,6 +3,7 @@ import * as Comlink from "comlink";
 import type { SolveRequest, SolveResponse } from "./types/solver";
 import ImageCanvas from "./components/ImageCanvas";
 import WorldMap from "./components/WorldMap";
+import Toolbar from "./components/Toolbar";
 import { useStore } from "./state/store";
 
 // Worker setup
@@ -28,6 +29,8 @@ export default function App() {
 
   const points = useStore((s) => s.points);
   const image = useStore((s) => s.image);
+  const activePointId = useStore((s) => s.activePointId);
+  const removePoint = useStore((s) => s.removePoint);
   const imagePoints = points.filter(
     (p) => typeof p.u === "number" && typeof p.v === "number"
   );
@@ -91,6 +94,19 @@ export default function App() {
       }}
     >
       <h1 style={{ margin: "8px 0 12px" }}>CamPose</h1>
+      <Toolbar
+        activePointId={activePointId}
+        onDelete={() => {
+          if (activePointId) removePoint(activePointId);
+        }}
+        onSolve={onSolve}
+        status={status}
+        counts={{
+          image: imagePoints.length,
+          world: worldPoints.length,
+          linked: linkedPoints.length,
+        }}
+      />
       <div
         style={{
           display: "grid",
@@ -101,38 +117,14 @@ export default function App() {
       >
         <div>
           <h3>Image</h3>
-          <ImageCanvas height={520} />
+          <ImageCanvas height={520} showLocalDelete={false} />
         </div>
         <div>
           <h3>Map</h3>
           <WorldMap height={520} />
         </div>
       </div>
-      <div
-        style={{
-          marginTop: 12,
-          display: "flex",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <button
-          onClick={onSolve}
-          style={{
-            padding: "8px 12px",
-            border: "1px solid #ccc",
-            borderRadius: 6,
-          }}
-        >
-          Solve
-        </button>
-        <span>Status: {status}</span>
-        <span>
-          | Points: {imagePoints.length} px, {worldPoints.length} world, linked:{" "}
-          {linkedPoints.length}
-        </span>
-      </div>
+      {/* toolbar contains global action buttons and status */}
       {result && (
         <pre
           style={{
