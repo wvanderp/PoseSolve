@@ -1,113 +1,107 @@
 import { create } from 'zustand';
 
-export type PixelPoint = { id: string; u: number; v: number; sigmaPx?: number; enabled?: boolean; height?: number };
-export type WorldPoint = { id: string; lat: number; lon: number; alt?: number; sigmaM?: number };
-export type Link = { pixelId: string; worldId: string };
+export type Point = {
+  id: string;
+  // image / pixel coords
+  u?: number;
+  v?: number;
+  sigmaPx?: number;
+  enabled?: boolean;
+  height?: number;
+  // world coords
+  lat?: number;
+  lon?: number;
+  alt?: number;
+  sigmaM?: number;
+};
 
 export type ImageInfo = { url?: string; width: number; height: number; name?: string };
+export type Selectors = {
+  getPointById: (state: { points: Point[] }, id: string) => Point | null;
+  getImagePoints: (state: { points: Point[] }) => Point[];
+  getWorldPoints: (state: { points: Point[] }) => Point[];
+};
 
 type State = {
   image: ImageInfo | null;
-  pixelPoints: PixelPoint[];
-  worldPoints: WorldPoint[];
-  links: Link[];
-  activePixelId: string | null;
-  activeWorldId: string | null;
+  points: Point[];
+  activePointId: string | null;
+  // UI view state (moved from component-local state)
+  zoom: number;
+  panOffset: { x: number; y: number };
+  editingHeightId: string | null;
+  selectors: Selectors;
   // actions
   setImage: (img: ImageInfo | null) => void;
-  addPixelPoint: (p: Omit<PixelPoint, 'id'> & { id?: string }) => string;
-  movePixelPoint: (id: string, u: number, v: number) => void;
-  updatePixelPointHeight: (id: string, height: number) => void;
-  removePixelPoint: (id: string) => void;
-  addWorldPoint: (p: Omit<WorldPoint, 'id'> & { id?: string }) => string;
-  moveWorldPoint: (id: string, lat: number, lon: number) => void;
-  removeWorldPoint: (id: string) => void;
-  linkPoints: (pixelId: string, worldId: string) => void;
-  unlinkByPixel: (pixelId: string) => void;
-  setActivePixel: (id: string | null) => void;
-  setActiveWorld: (id: string | null) => void;
+  setZoom: (z: number) => void;
+  setPanOffset: (p: { x: number; y: number }) => void;
+  setEditingHeight: (id: string | null) => void;
+  addPoint: (p: Partial<Point> & { id?: string }) => string;
+  updatePointImage: (id: string, u: number, v: number) => void;
+  updatePointWorld: (id: string, lat: number, lon: number) => void;
+  updatePointHeight: (id: string, height: number) => void;
+  updatePointFields: (id: string, fields: Partial<Point>) => void;
+  removePoint: (id: string) => void;
+  setActivePoint: (id: string | null) => void;
   selectLinkedPoint: (pointId: string, pointType: 'pixel' | 'world') => void;
 };
 
 let _idCounter = 0;
 const genId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(_idCounter++).toString(36)}`;
+export const selectors: Selectors = {
+  getPointById: (state, id: string): Point | null => state.points.find(p => p.id === id) ?? null,
+  getImagePoints: (state) => state.points.filter(p => typeof p.u === 'number' && typeof p.v === 'number'),
+  getWorldPoints: (state) => state.points.filter(p => typeof p.lat === 'number' && typeof p.lon === 'number'),
+};
 
 export const useStore = create<State>((set, get) => ({
   // Default image (requested): Coolhaven / Erasmus medical center Rotterdam skyline
   image: {
     url: 'https://upload.wikimedia.org/wikipedia/commons/9/9e/Coolhaven_Erasmus_medical_center_Rotterdam_skyline.jpg',
     // placeholder dimensions; ImageCanvas will update these to the real natural size when the image loads
-    width: 1,
-    height: 1,
+    width: 3264,
+    height: 2448,
     name: 'Coolhaven Rotterdam (default)'
   },
-  pixelPoints: [],
-  worldPoints: [],
-  links: [],
-  activePixelId: null,
-  activeWorldId: null,
+  points: [],
+  activePointId: null,
+  // default view state
+  zoom: 1,
+  panOffset: { x: 0, y: 0 },
+  editingHeightId: null,
   setImage: (img) => set({ image: img }),
-  addPixelPoint: (p) => {
-    const id = p.id ?? genId('px');
-    set((s) => ({ pixelPoints: [...s.pixelPoints, { id, enabled: true, sigmaPx: 1, height: 0, ...p }] }));
+  setZoom: (z) => set({ zoom: z }),
+  setPanOffset: (p) => set({ panOffset: p }),
+  setEditingHeight: (id) => set({ editingHeightId: id }),
+  addPoint: (p) => {
+    const id = p.id ?? genId('pt');
+    const defaults: Partial<Point> = { enabled: true, sigmaPx: 1, height: 0 };
+    set((s) => ({ points: [...s.points, { id, ...defaults, ...p }] }));
     return id;
   },
-  movePixelPoint: (id, u, v) => set((s) => ({
-    pixelPoints: s.pixelPoints.map(pp => pp.id === id ? { ...pp, u, v } : pp)
+  updatePointImage: (id, u, v) => set((s) => ({
+    points: s.points.map(pt => pt.id === id ? { ...pt, u, v } : pt)
   })),
-  updatePixelPointHeight: (id, height) => set((s) => ({
-    pixelPoints: s.pixelPoints.map(pp => pp.id === id ? { ...pp, height } : pp)
+  updatePointWorld: (id, lat, lon) => set((s) => ({
+    points: s.points.map(pt => pt.id === id ? { ...pt, lat, lon } : pt)
   })),
-  removePixelPoint: (id) => set((s) => ({
-    pixelPoints: s.pixelPoints.filter(pp => pp.id !== id),
-    links: s.links.filter(l => l.pixelId !== id),
-    activePixelId: s.activePixelId === id ? null : s.activePixelId,
+  updatePointHeight: (id, height) => set((s) => ({
+    points: s.points.map(pt => pt.id === id ? { ...pt, height } : pt)
   })),
-  addWorldPoint: (p) => {
-    const id = p.id ?? genId('w');
-    set((s) => ({ worldPoints: [...s.worldPoints, { id, ...p }] }));
-    return id;
-  },
-  moveWorldPoint: (id, lat, lon) => set((s) => ({
-    worldPoints: s.worldPoints.map(wp => wp.id === id ? { ...wp, lat, lon } : wp)
+  updatePointFields: (id, fields) => set((s) => ({
+    points: s.points.map(pt => pt.id === id ? { ...pt, ...fields } : pt)
   })),
-  removeWorldPoint: (id) => set((s) => ({
-    worldPoints: s.worldPoints.filter(wp => wp.id !== id),
-    links: s.links.filter(l => l.worldId !== id),
-    activeWorldId: s.activeWorldId === id ? null : s.activeWorldId,
+  removePoint: (id) => set((s) => ({
+    points: s.points.filter(pt => pt.id !== id),
+    activePointId: s.activePointId === id ? null : s.activePointId,
   })),
-  linkPoints: (pixelId, worldId) => set((s) => {
-    const exists = s.links.some(l => l.pixelId === pixelId || l.worldId === worldId);
-    // Enforce 1-1 linking by removing existing links for either side
-    const filtered = s.links.filter(l => l.pixelId !== pixelId && l.worldId !== worldId);
-    return { links: [...filtered, { pixelId, worldId }], activePixelId: null, activeWorldId: null };
-  }),
-  unlinkByPixel: (pixelId) => set((s) => ({ links: s.links.filter(l => l.pixelId !== pixelId) })),
-  setActivePixel: (id) => set({ activePixelId: id }),
-  setActiveWorld: (id) => set({ activeWorldId: id }),
+  setActivePoint: (id) => set({ activePointId: id }),
   selectLinkedPoint: (pointId, pointType) => {
+    // In unified model, selecting any point simply makes it active.
     const state = get();
-    if (pointType === 'pixel') {
-      // Find linked world point
-      const link = state.links.find(l => l.pixelId === pointId);
-      set({ activePixelId: pointId, activeWorldId: link?.worldId || null });
-    } else {
-      // Find linked pixel point  
-      const link = state.links.find(l => l.worldId === pointId);
-      set({ activeWorldId: pointId, activePixelId: link?.pixelId || null });
-    }
+    const pt = state.points.find(p => p.id === pointId);
+    set({ activePointId: pt ? pt.id : null });
   },
+  // expose selectors for tests
+  selectors,
 }));
-
-export const selectors = {
-  getLinkedWorldForPixel: (state: State, pixelId: string): WorldPoint | null => {
-    const link = state.links.find(l => l.pixelId === pixelId);
-    if (!link) return null;
-    return state.worldPoints.find(w => w.id === link.worldId) ?? null;
-  },
-  getLinkedPixelForWorld: (state: State, worldId: string): PixelPoint | null => {
-    const link = state.links.find(l => l.worldId === worldId);
-    if (!link) return null;
-    return state.pixelPoints.find(p => p.id === link.pixelId) ?? null;
-  }
-};

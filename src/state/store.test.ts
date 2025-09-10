@@ -1,239 +1,134 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
 
-describe('Store - Cross-selection functionality', () => {
+describe('Store - Selection functionality (unified points)', () => {
   beforeEach(() => {
     // Reset store to initial state
-    useStore.setState({
-      image: null,
-      pixelPoints: [],
-      worldPoints: [],
-      links: [],
-      activePixelId: null,
-      activeWorldId: null,
-    });
+    useStore.setState({ image: null, points: [], activePointId: null });
   });
 
-  it('should select linked world point when pixel point is selected', () => {
-    const { addPixelPoint, addWorldPoint, linkPoints, selectLinkedPoint } = useStore.getState();
-    
-    // Add points and link them
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    linkPoints(pixelId, worldId);
-    
-    // Select pixel point should select linked world point
-    selectLinkedPoint(pixelId, 'pixel');
-    
+  it('selecting an image point sets activePointId', () => {
+    const { addPoint, selectLinkedPoint } = useStore.getState();
+
+    const ptId = addPoint({ u: 100, v: 200 });
+    selectLinkedPoint(ptId, 'pixel');
+
     const state = useStore.getState();
-    expect(state.activePixelId).toBe(pixelId);
-    expect(state.activeWorldId).toBe(worldId);
+    expect(state.activePointId).toBe(ptId);
   });
 
-  it('should select linked pixel point when world point is selected', () => {
-    const { addPixelPoint, addWorldPoint, linkPoints, selectLinkedPoint } = useStore.getState();
-    
-    // Add points and link them
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    linkPoints(pixelId, worldId);
-    
-    // Select world point should select linked pixel point
-    selectLinkedPoint(worldId, 'world');
-    
+  it('selecting a world point sets activePointId', () => {
+    const { addPoint, selectLinkedPoint } = useStore.getState();
+
+    const ptId = addPoint({ lat: 52.0, lon: 4.0 });
+    selectLinkedPoint(ptId, 'world');
+
     const state = useStore.getState();
-    expect(state.activeWorldId).toBe(worldId);
-    expect(state.activePixelId).toBe(pixelId);
+    expect(state.activePointId).toBe(ptId);
   });
 
-  it('should handle selection of unlinked points', () => {
-    const { addPixelPoint, selectLinkedPoint } = useStore.getState();
-    
-    // Add unlinked pixel point
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    
-    // Select unlinked pixel point
-    selectLinkedPoint(pixelId, 'pixel');
-    
+  it('selecting a missing point clears activePointId', () => {
+    const { selectLinkedPoint } = useStore.getState();
+
+    selectLinkedPoint('nonexistent', 'pixel');
     const state = useStore.getState();
-    expect(state.activePixelId).toBe(pixelId);
-    expect(state.activeWorldId).toBeNull();
+    expect(state.activePointId).toBeNull();
   });
 });
 
 describe('Store - Height functionality', () => {
   beforeEach(() => {
-    useStore.setState({
-      pixelPoints: [],
-    });
+    useStore.setState({ points: [] });
   });
 
-  it('should add pixel points with default height of 0', () => {
-    const { addPixelPoint } = useStore.getState();
-    
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true });
-    
+  it('should add points with default height of 0', () => {
+    const { addPoint } = useStore.getState();
+    const id = addPoint({ u: 10, v: 20 });
+
     const state = useStore.getState();
-    const point = state.pixelPoints.find(p => p.id === pixelId);
-    expect(point?.height).toBe(0);
+    const pt = state.points.find(p => p.id === id);
+    expect(pt).toBeTruthy();
+    expect(pt?.height).toBe(0);
   });
 
-  it('should update pixel point height', () => {
-    const { addPixelPoint, updatePixelPointHeight } = useStore.getState();
-    
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    updatePixelPointHeight(pixelId, 15.5);
-    
+  it('should update point height', () => {
+    const { addPoint, updatePointHeight } = useStore.getState();
+    const id = addPoint({ u: 10, v: 20 });
+    updatePointHeight(id, 15.5);
+
     const state = useStore.getState();
-    const point = state.pixelPoints.find(p => p.id === pixelId);
-    expect(point?.height).toBe(15.5);
+    const pt = state.points.find(p => p.id === id);
+    expect(pt?.height).toBe(15.5);
   });
 
-  it('should preserve height when moving points', () => {
-    const { addPixelPoint, updatePixelPointHeight, movePixelPoint } = useStore.getState();
-    
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    updatePixelPointHeight(pixelId, 10);
-    movePixelPoint(pixelId, 200, 200);
-    
+  it('should preserve height when moving point (image update)', () => {
+    const { addPoint, updatePointHeight, updatePointImage } = useStore.getState();
+    const id = addPoint({ u: 10, v: 20 });
+    updatePointHeight(id, 10);
+    updatePointImage(id, 200, 300);
+
     const state = useStore.getState();
-    const point = state.pixelPoints.find(p => p.id === pixelId);
-    expect(point?.height).toBe(10);
-    expect(point?.u).toBe(200);
-    expect(point?.v).toBe(200);
+    const pt = state.points.find(p => p.id === id);
+    expect(pt?.height).toBe(10);
+    expect(pt?.u).toBe(200);
+    expect(pt?.v).toBe(300);
   });
 });
 
-describe('Store - Linking functionality', () => {
+describe('Store - Removal and active clearing', () => {
   beforeEach(() => {
-    useStore.setState({
-      pixelPoints: [],
-      worldPoints: [],
-      links: [],
-      activePixelId: null,
-      activeWorldId: null,
-    });
+    useStore.setState({ points: [], activePointId: null });
   });
 
-  it('should create 1-to-1 links and clear active selections', () => {
-    const { addPixelPoint, addWorldPoint, linkPoints } = useStore.getState();
-    
-    const pixelId1 = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const pixelId2 = addPixelPoint({ u: 200, v: 200, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId1 = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    const worldId2 = addWorldPoint({ lat: 52.1, lon: 4.1 });
-    
-    // Link first pair
-    linkPoints(pixelId1, worldId1);
-    
+  it('removing a point deletes it and clears active if needed', () => {
+    const { addPoint, removePoint, setActivePoint } = useStore.getState();
+    const id = addPoint({ u: 1, v: 2 });
+    setActivePoint(id);
+
     let state = useStore.getState();
-    expect(state.links).toHaveLength(1);
-    expect(state.activePixelId).toBeNull();
-    expect(state.activeWorldId).toBeNull();
-    
-    // Link second pair should not interfere
-    linkPoints(pixelId2, worldId2);
-    
-    state = useStore.getState();
-    expect(state.links).toHaveLength(2);
-  });
+    expect(state.activePointId).toBe(id);
 
-  it('should enforce 1-to-1 constraint by removing existing links', () => {
-    const { addPixelPoint, addWorldPoint, linkPoints } = useStore.getState();
-    
-    const pixelId1 = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const pixelId2 = addPixelPoint({ u: 200, v: 200, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId1 = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    
-    // Link first pair
-    linkPoints(pixelId1, worldId1);
-    
-    // Try to link second pixel to same world point
-    linkPoints(pixelId2, worldId1);
-    
-    const state = useStore.getState();
-    expect(state.links).toHaveLength(1);
-    expect(state.links[0].pixelId).toBe(pixelId2);
-    expect(state.links[0].worldId).toBe(worldId1);
-  });
-
-  it('should remove links when points are deleted', () => {
-    const { addPixelPoint, addWorldPoint, linkPoints, removePixelPoint, removeWorldPoint } = useStore.getState();
-    
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    linkPoints(pixelId, worldId);
-    
-    // Remove pixel point should remove link
-    removePixelPoint(pixelId);
-    
-    let state = useStore.getState();
-    expect(state.links).toHaveLength(0);
-    expect(state.pixelPoints).toHaveLength(0);
-    
-    // Add them back and test world point removal
-    const newPixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const newWorldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    linkPoints(newPixelId, newWorldId);
-    
-    removeWorldPoint(newWorldId);
-    
+    removePoint(id);
     state = useStore.getState();
-    expect(state.links).toHaveLength(0);
-    expect(state.worldPoints).toHaveLength(0);
+    expect(state.points.find(p => p.id === id)).toBeUndefined();
+    expect(state.activePointId).toBeNull();
   });
 });
 
 describe('Store - Selectors', () => {
   beforeEach(() => {
-    useStore.setState({
-      pixelPoints: [],
-      worldPoints: [],
-      links: [],
-    });
+    useStore.setState({ points: [] });
   });
 
-  it('should find linked world point for pixel point', () => {
-    const { addPixelPoint, addWorldPoint, linkPoints, selectors } = useStore.getState();
-    
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    linkPoints(pixelId, worldId);
-    
+  it('getPointById returns the correct point', () => {
+    const { addPoint, selectors } = useStore.getState();
+    const id = addPoint({ u: 5, v: 6, lat: 52, lon: 4 });
+
     const state = useStore.getState();
-    const linkedWorld = selectors.getLinkedWorldForPixel(state, pixelId);
-    
-    expect(linkedWorld).toBeTruthy();
-    expect(linkedWorld?.id).toBe(worldId);
-    expect(linkedWorld?.lat).toBe(52.0);
-    expect(linkedWorld?.lon).toBe(4.0);
+    const pt = state.selectors.getPointById(state, id);
+    expect(pt).toBeTruthy();
+    expect(pt?.id).toBe(id);
   });
 
-  it('should find linked pixel point for world point', () => {
-    const { addPixelPoint, addWorldPoint, linkPoints, selectors } = useStore.getState();
-    
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    linkPoints(pixelId, worldId);
-    
+  it('getImagePoints returns only image points', () => {
+    const { addPoint, selectors } = useStore.getState();
+    const imgId = addPoint({ u: 10, v: 20 });
+    addPoint({ lat: 52, lon: 4 });
+
     const state = useStore.getState();
-    const linkedPixel = selectors.getLinkedPixelForWorld(state, worldId);
-    
-    expect(linkedPixel).toBeTruthy();
-    expect(linkedPixel?.id).toBe(pixelId);
-    expect(linkedPixel?.u).toBe(100);
-    expect(linkedPixel?.v).toBe(100);
+    const imgs = state.selectors.getImagePoints(state);
+    expect(imgs.some(p => p.id === imgId)).toBe(true);
+    expect(imgs.every(p => typeof p.u === 'number' && typeof p.v === 'number')).toBe(true);
   });
 
-  it('should return null for unlinked points', () => {
-    const { addPixelPoint, addWorldPoint, selectors } = useStore.getState();
-    
-    const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 });
-    const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-    
+  it('getWorldPoints returns only world points', () => {
+    const { addPoint } = useStore.getState();
+    const worldId = addPoint({ lat: 52.1, lon: 4.1 });
+    addPoint({ u: 1, v: 2 });
+
     const state = useStore.getState();
-    
-    expect(selectors.getLinkedWorldForPixel(state, pixelId)).toBeNull();
-    expect(selectors.getLinkedPixelForWorld(state, worldId)).toBeNull();
+    const worlds = state.selectors.getWorldPoints(state);
+    expect(worlds.some(p => p.id === worldId)).toBe(true);
+    expect(worlds.every(p => typeof p.lat === 'number' && typeof p.lon === 'number')).toBe(true);
   });
 });

@@ -1,199 +1,179 @@
-import React from 'react';
-import App from '../App';
-import { useStore } from '../state/store';
-// @ts-ignore
-import { mount } from 'cypress/react';
+import React from "react";
+import App from "./App";
+import { useStore } from "./state/store";
+import { mount } from "cypress/react";
 
 // Mock worker for App component
+// Avoid calling Cypress commands at module scope (causes "outside a running test" errors).
 const mockWorker = {
-  solve: cy.stub().resolves({ pose: {}, intrinsics: {}, diagnostics: {} }),
+  solve: async () => ({ pose: {}, intrinsics: {}, diagnostics: {} }),
 };
 
-// Mock Comlink
-// @ts-ignore
-global.Comlink = {
-  wrap: () => mockWorker,
-  releaseProxy: cy.stub(),
-};
-
-// Mock Leaflet for WorldMap
-// @ts-ignore
-global.L = {
-  map: cy.stub().returns({
-    on: cy.stub(),
-    addTo: cy.stub(),
-  }),
-  tileLayer: cy.stub().returns({
-    addTo: cy.stub(),
-  }),
-  layerGroup: cy.stub().returns({
-    addTo: cy.stub(),
-    clearLayers: cy.stub(),
-  }),
-  marker: cy.stub().returns({
-    addTo: cy.stub(),
-    on: cy.stub(),
-    bindTooltip: cy.stub().returns({
-      openTooltip: cy.stub(),
-    }),
-  }),
-  Icon: {
-    Default: {
-      mergeOptions: cy.stub(),
-    },
-  },
-};
-
-describe('App Integration - Complete Workflow', () => {
+describe("App Integration - Complete Workflow", () => {
   beforeEach(() => {
     // Reset store to clean state
     useStore.setState({
-      image: { url: 'test.png', width: 400, height: 300, name: 'test-image.png' },
-      pixelPoints: [],
-      worldPoints: [],
-      links: [],
-      activePixelId: null,
-      activeWorldId: null,
+      image: {
+        url: "test.png",
+        width: 400,
+        height: 300,
+        name: "test-image.png",
+      },
+      points: [],
+      activePointId: null,
     });
   });
 
-  it('demonstrates complete workflow from start to finish', () => {
-    // @ts-ignore
+  it("demonstrates complete workflow from start to finish", () => {
     cy.mount(<App />);
 
     // Verify initial state
-    cy.contains('Status: Idle').should('be.visible');
-    cy.contains('Points: 0 px, 0 world, links: 0').should('be.visible');
+    cy.contains("Status: Idle").should("be.visible");
+    cy.contains("Points: 0 px, 0 world, linked: 0").should("be.visible");
 
-    // Test workflow steps
+    // Test workflow steps using the unified store API
     cy.then(() => {
-      const { addWorldPoint, addPixelPoint, linkPoints } = useStore.getState();
-      
-      // Simulate map click creating world point and auto-linked pixel point
-      const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-      const pixelId = addPixelPoint({ 
-        u: 200, // image center x
-        v: 150, // image center y  
+      const { addPoint, selectors } = useStore.getState();
+
+      // Create a single point that has both image and world coordinates (represents a linked point)
+      const id = addPoint({
+        lat: 52.0,
+        lon: 4.0,
+        u: 200,
+        v: 150,
         sigmaPx: 1,
         enabled: true,
-        height: 0
+        height: 0,
       });
-      linkPoints(pixelId, worldId);
-      
-      // Verify points were created and linked
+
+      // Verify points were created and linked (i.e. one point with both image & world fields)
       const state = useStore.getState();
-      expect(state.pixelPoints).to.have.length(1);
-      expect(state.worldPoints).to.have.length(1);
-      expect(state.links).to.have.length(1);
-      expect(state.links[0].pixelId).to.equal(pixelId);
-      expect(state.links[0].worldId).to.equal(worldId);
+      const imagePoints = selectors.getImagePoints(state);
+      const worldPoints = selectors.getWorldPoints(state);
+      const linkedPoints = state.points.filter(
+        (p) =>
+          typeof p.u === "number" &&
+          typeof p.v === "number" &&
+          typeof p.lat === "number" &&
+          typeof p.lon === "number"
+      );
+
+      expect(imagePoints).to.have.length(1);
+      expect(worldPoints).to.have.length(1);
+      expect(linkedPoints).to.have.length(1);
+      expect(linkedPoints[0].id).to.equal(id);
     });
 
     // Verify UI updates
-    cy.contains('Points: 1 px, 1 world, links: 1').should('be.visible');
+    cy.contains("Points: 1 px, 1 world, linked: 1").should("be.visible");
 
     // Test cross-selection
     cy.then(() => {
       const { selectLinkedPoint } = useStore.getState();
-      selectLinkedPoint('w_mfd50gzw_0', 'world');
-      
+      const id = useStore.getState().points[0].id;
+      selectLinkedPoint(id, "world");
+
       const state = useStore.getState();
-      expect(state.activeWorldId).to.not.be.null;
+      expect(state.activePointId).to.not.be.null;
     });
 
     // Test height editing functionality
     cy.then(() => {
-      const { updatePixelPointHeight } = useStore.getState();
-      const pixelPoint = useStore.getState().pixelPoints[0];
-      
-      updatePixelPointHeight(pixelPoint.id, 15.5);
-      
+      const { updatePointHeight } = useStore.getState();
+      const pt = useStore.getState().points[0];
+
+      updatePointHeight(pt.id, 15.5);
+
       const updatedState = useStore.getState();
-      const updatedPoint = updatedState.pixelPoints.find(p => p.id === pixelPoint.id);
+      const updatedPoint = updatedState.points.find((p: any) => p.id === pt.id);
       expect(updatedPoint?.height).to.equal(15.5);
     });
 
     // Verify solve button is available
-    cy.get('button').contains('Solve').should('be.visible');
+    cy.get("button").contains("Solve").should("be.visible");
   });
 
-  it('handles multiple point pairs with proper linking', () => {
-    // @ts-ignore  
+  it("handles multiple point pairs with proper linking", () => {
     cy.mount(<App />);
 
     cy.then(() => {
-      const { addWorldPoint, addPixelPoint, linkPoints } = useStore.getState();
-      
-      // Add multiple point pairs
+      const { addPoint, selectors } = useStore.getState();
+
+      // Add multiple linked points (each has both world and pixel fields)
       const pairs = [
         { world: { lat: 52.0, lon: 4.0 }, pixel: { u: 100, v: 100 } },
         { world: { lat: 52.1, lon: 4.1 }, pixel: { u: 200, v: 200 } },
         { world: { lat: 52.2, lon: 4.2 }, pixel: { u: 300, v: 100 } },
       ];
 
-      pairs.forEach(pair => {
-        const worldId = addWorldPoint(pair.world);
-        const pixelId = addPixelPoint({ 
-          ...pair.pixel, 
-          sigmaPx: 1, 
-          enabled: true, 
-          height: Math.random() * 20  // Random height for variety
+      pairs.forEach((pair) => {
+        addPoint({
+          ...pair.world,
+          ...pair.pixel,
+          sigmaPx: 1,
+          enabled: true,
+          height: Math.random() * 20,
         });
-        linkPoints(pixelId, worldId);
       });
 
       const state = useStore.getState();
-      expect(state.pixelPoints).to.have.length(3);
-      expect(state.worldPoints).to.have.length(3);
-      expect(state.links).to.have.length(3);
+      const imagePoints = selectors.getImagePoints(state);
+      const worldPoints = selectors.getWorldPoints(state);
+      const linkedPoints = state.points.filter(
+        (p) =>
+          typeof p.u === "number" &&
+          typeof p.v === "number" &&
+          typeof p.lat === "number" &&
+          typeof p.lon === "number"
+      );
 
-      // Verify 1-to-1 linking constraint
-      const pixelIds = state.links.map(l => l.pixelId);
-      const worldIds = state.links.map(l => l.worldId);
-      expect(new Set(pixelIds).size).to.equal(3); // All unique
-      expect(new Set(worldIds).size).to.equal(3); // All unique
+      expect(state.points).to.have.length(3);
+      expect(imagePoints).to.have.length(3);
+      expect(worldPoints).to.have.length(3);
+      expect(linkedPoints).to.have.length(3);
+
+      // Verify 1-to-1 uniqueness: each point is its own linked pair
+      const ids = state.points.map((p: any) => p.id);
+      expect(new Set(ids).size).to.equal(3);
     });
 
-    cy.contains('Points: 3 px, 3 world, links: 3').should('be.visible');
+    cy.contains("Points: 3 px, 3 world, linked: 3").should("be.visible");
   });
 
-  it('maintains data integrity during point operations', () => {
-    // @ts-ignore
+  it("maintains data integrity during point operations", () => {
     cy.mount(<App />);
 
     cy.then(() => {
-      const { 
-        addWorldPoint, 
-        addPixelPoint, 
-        linkPoints, 
-        movePixelPoint, 
-        updatePixelPointHeight,
-        removePixelPoint 
-      } = useStore.getState();
-      
-      // Create and link points
-      const worldId = addWorldPoint({ lat: 52.0, lon: 4.0 });
-      const pixelId = addPixelPoint({ u: 100, v: 100, sigmaPx: 1, enabled: true, height: 10 });
-      linkPoints(pixelId, worldId);
+      const { addPoint, updatePointImage, updatePointHeight, removePoint } =
+        useStore.getState();
 
-      // Test move operation preserves data
-      movePixelPoint(pixelId, 150, 150);
-      updatePixelPointHeight(pixelId, 20);
+      // Create a single linked point (image + world on one object)
+      const id = addPoint({
+        u: 100,
+        v: 100,
+        lat: 52.0,
+        lon: 4.0,
+        sigmaPx: 1,
+        enabled: true,
+        height: 10,
+      });
+
+      // Test update operation preserves data on the single point
+      updatePointImage(id, 150, 150);
+      updatePointHeight(id, 20);
 
       let state = useStore.getState();
-      const movedPoint = state.pixelPoints.find(p => p.id === pixelId);
+      const movedPoint = state.points.find((p: any) => p.id === id);
       expect(movedPoint?.u).to.equal(150);
       expect(movedPoint?.v).to.equal(150);
       expect(movedPoint?.height).to.equal(20);
-      expect(state.links).to.have.length(1); // Link preserved
+      expect(state.points).to.have.length(1);
 
-      // Test removal cleans up links
-      removePixelPoint(pixelId);
-      
+      // Test removal deletes the unified point
+      removePoint(id);
+
       state = useStore.getState();
-      expect(state.pixelPoints).to.have.length(0);
-      expect(state.links).to.have.length(0); // Link removed
-      expect(state.worldPoints).to.have.length(1); // World point remains
+      expect(state.points).to.have.length(0);
     });
   });
 });

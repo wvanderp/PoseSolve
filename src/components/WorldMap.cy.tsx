@@ -1,51 +1,20 @@
 import React from 'react';
 import WorldMap from './WorldMap';
 import { useStore } from '../state/store';
-// @ts-ignore
 import { mount } from 'cypress/react';
-
-// Mock Leaflet imports at the top level
-// @ts-ignore
-global.L = {
-  map: cy.stub().returns({
-    on: cy.stub(),
-    addTo: cy.stub(),
-  }),
-  tileLayer: cy.stub().returns({
-    addTo: cy.stub(),
-  }),
-  layerGroup: cy.stub().returns({
-    addTo: cy.stub(),
-    clearLayers: cy.stub(),
-  }),
-  marker: cy.stub().returns({
-    addTo: cy.stub(),
-    on: cy.stub(),
-    bindTooltip: cy.stub().returns({
-      openTooltip: cy.stub(),
-    }),
-  }),
-  Icon: {
-    Default: {
-      mergeOptions: cy.stub(),
-    },
-  },
-};
 
 describe('WorldMap (component)', () => {
   beforeEach(() => {
-    // Reset store to a minimal state
+    // Reset store to a minimal state using the new unified store shape
     useStore.setState({
-      worldPoints: [],
-      activeWorldId: null,
-      activePixelId: null,
+      points: [],
+      activePointId: null,
       image: null,
     });
   });
 
   const mountMap = () => {
-    // @ts-ignore
-    cy.mount(<WorldMap height={200} />);
+  mount(<WorldMap height={200} />);
   };
 
   it('shows updated tip text for auto-linking', () => {
@@ -59,19 +28,19 @@ describe('WorldMap (component)', () => {
     // Set up store with image for auto-linking
     useStore.setState({
       image: { url: 'test.png', width: 200, height: 200, name: 'test.png' },
-      worldPoints: [],
-      pixelPoints: [],
-      links: [],
+      points: [],
     });
 
     mountMap();
 
     // Verify that the component has access to the required store functions
     cy.then(() => {
-      const { addWorldPoint, addPixelPoint, linkPoints } = useStore.getState();
-      expect(addWorldPoint).to.be.a('function');
-      expect(addPixelPoint).to.be.a('function'); 
-      expect(linkPoints).to.be.a('function');
+      const { setImage, addPoint, updatePointImage, updatePointWorld, selectLinkedPoint } = useStore.getState();
+      expect(setImage).to.be.a('function');
+      expect(addPoint).to.be.a('function');
+      expect(updatePointImage).to.be.a('function');
+      expect(updatePointWorld).to.be.a('function');
+      expect(selectLinkedPoint).to.be.a('function');
     });
   });
 
@@ -79,13 +48,10 @@ describe('WorldMap (component)', () => {
     // Set up store with linked points
     const worldPoint = { id: 'w_1', lat: 52.0, lon: 4.0 };
     const pixelPoint = { id: 'px_1', u: 100, v: 100, sigmaPx: 1, enabled: true, height: 0 };
-    const link = { pixelId: 'px_1', worldId: 'w_1' };
-
+    // The new store keeps a single points array. Links are not stored separately in this model.
     useStore.setState({
-      worldPoints: [worldPoint],
-      pixelPoints: [pixelPoint],
-      links: [link],
-      activeWorldId: 'w_1',
+      points: [worldPoint, pixelPoint],
+      activePointId: null,
       image: { url: 'test.png', width: 200, height: 200, name: 'test.png' },
     });
 
@@ -95,13 +61,12 @@ describe('WorldMap (component)', () => {
     cy.then(() => {
       const { selectLinkedPoint } = useStore.getState();
       expect(selectLinkedPoint).to.be.a('function');
-      
-      // Test cross-selection
+
+      // Test selection: in the unified store selecting a point makes it active
       selectLinkedPoint('w_1', 'world');
-      
+
       const state = useStore.getState();
-      expect(state.activeWorldId).to.equal('w_1');
-      expect(state.activePixelId).to.equal('px_1');
+      expect(state.activePointId).to.equal('w_1');
     });
   });
 

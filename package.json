@@ -9,7 +9,10 @@
     "ct:run": "cypress run --component",
     "build": "npm run build:wasm && vite build",
     "preview": "vite preview",
-    "build:wasm": "wasm-pack build crates/solver --target web --release"
+    "build:wasm": "wasm-pack build crates/solver --target web --release",
+    "lint": "tsc --noEmit",
+    "test:vite": "vitest --run",
+    "test": "npm run lint && npm run test:vite && npm run ct:run"
   },
   "dependencies": {
     "comlink": "^4.4.2",
@@ -27,8 +30,9 @@
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.5",
-    "cypress": "^15.1.0",
+    "cypress": "^15.2.0",
     "@cypress/vite-dev-server": "^7.0.0",
-    "@cypress/react": "^9.0.1"
+    "@cypress/react": "^9.0.1",
+    "vitest": "^3.2.4"
   }
 }
