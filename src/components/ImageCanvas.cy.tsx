@@ -142,6 +142,10 @@ describe("ImageCanvas (component)", () => {
       "contain.text",
       "Upload an image to begin"
     );
+    // placeholder should have an actionable upload button
+    cy.get('[data-testid="file-input"]')
+      .should("be.visible")
+      .and("not.be.disabled");
   });
 
   it("displays zoom and pan controls", () => {
@@ -159,6 +163,13 @@ describe("ImageCanvas (component)", () => {
     // Wait for image to load and check metadata display
     cy.contains("test-image.svg — 100×100").should("be.visible");
     cy.get('[data-testid="placeholder"]').should("not.exist");
+    // Canvas should exist and have expected drawing surface size
+    cy.get('[data-testid="canvas"]').should(($c) => {
+      const canvas = $c[0] as HTMLCanvasElement;
+      expect(canvas).to.exist;
+      expect(canvas.width).to.be.greaterThan(0);
+      expect(canvas.height).to.be.greaterThan(0);
+    });
   });
 
   describe("Point Management", () => {
@@ -189,6 +200,8 @@ describe("ImageCanvas (component)", () => {
         // Assert the stored pixel coordinates match the expected values
         expect(pixelPoints[0].u).to.be.approximately(50, 2);
         expect(pixelPoints[0].v).to.be.approximately(50, 2);
+        // The activePointId should be set to the created point
+        expect(state.activePointId).to.equal(pixelPoints[0].id);
       });
       // UI visual checks are flaky in headless runs; the store assertions above are
       // sufficient to validate the component behaviour (point added and selected).
@@ -237,6 +250,8 @@ describe("ImageCanvas (component)", () => {
           (p) => typeof p.u === "number" && typeof p.v === "number"
         );
         expect(pixelPoints).to.have.length(0);
+        // activePointId should be null after deletion
+        expect(state.activePointId).to.be.oneOf([null, undefined]);
       });
     });
 
@@ -265,6 +280,8 @@ describe("ImageCanvas (component)", () => {
         expect(pixelPoints[0].id).to.equal(pointId);
         expect(pixelPoints[0].u).to.be.approximately(100, 4);
         expect(pixelPoints[0].v).to.be.approximately(100, 4);
+        // Ensure selected point is the moved one
+        expect(state.activePointId).to.equal(pointId);
       });
 
       // Visual canvas assertions are flaky; store assertions above validate the

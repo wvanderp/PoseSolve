@@ -152,6 +152,7 @@ export default function ImageCanvas({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragMode, setDragMode] = useState<"pan" | "point" | null>(null);
   const [dragPointId, setDragPointId] = useState<string | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
   // Local selectedPointId mirrors store.activePointId so UI and tests stay in sync
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
 
@@ -179,7 +180,7 @@ export default function ImageCanvas({
   const MIN_ZOOM = 0.1;
   const MAX_ZOOM = 50;
   const ZOOM_FACTOR = 1.1;
-  const CANVAS_WIDTH = 600;
+  const CANVAS_WIDTH = 800;
   const CANVAS_HEIGHT = height;
 
   // Calculate base scale and canvas dimensions
@@ -262,7 +263,11 @@ export default function ImageCanvas({
 
   // Get canvas mouse position accounting for CSS scaling
   const getCanvasMousePos = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
+    (
+      e:
+        | React.MouseEvent<HTMLCanvasElement>
+        | React.PointerEvent<HTMLCanvasElement>
+    ) => {
       const canvas = canvasRef.current;
       if (!canvas) return { x: 0, y: 0 };
 
@@ -270,9 +275,13 @@ export default function ImageCanvas({
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
 
+      // support both MouseEvent and PointerEvent shapes
+      const clientX = (e as any).clientX as number;
+      const clientY = (e as any).clientY as number;
+
       return {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top) * scaleY,
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
       };
     },
     []
@@ -352,10 +361,14 @@ export default function ImageCanvas({
 
   // Mouse event handlers
   const onDoubleClick = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
+    (
+      e:
+        | React.MouseEvent<HTMLCanvasElement>
+        | React.PointerEvent<HTMLCanvasElement>
+    ) => {
       if (!image) return;
 
-      const canvasPos = getCanvasMousePos(e);
+      const canvasPos = getCanvasMousePos(e as any);
       const imagePos = screenToImage(canvasPos.x, canvasPos.y);
 
       // Check if click is within image bounds
@@ -399,41 +412,47 @@ export default function ImageCanvas({
   );
 
   const onCanvasDown = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (!image) return;
 
-      const canvasPos = getCanvasMousePos(e);
+      // Only respond to primary button presses
+      if (e.button !== 0) return;
+
+      // capture pointer so we keep receiving events even if the pointer
+      // leaves the canvas element
+      try {
+        (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+        pointerIdRef.current = e.pointerId;
+      } catch (err) {
+        // some browsers may throw if capture isn't available; ignore
+      }
+
+      const canvasPos = getCanvasClientPos(e.clientX, e.clientY);
       const hitPointId = hitTestPoint(canvasPos);
 
-      if (e.button === 0) {
-        // Left click
-        if (hitPointId) {
-          // Start dragging point
-          setDragMode("point");
-          setDragPointId(hitPointId);
-          setSelectedPointId(hitPointId);
-          selectLinkedPoint(hitPointId, "pixel");
-
-          // Note: Pointer capture would require PointerEvent instead of MouseEvent
-          // For now, we'll rely on onMouseLeave to handle cleanup
-        } else {
-          // Start panning
-          setDragMode("pan");
-          setSelectedPointId(null);
-        }
-
-        setIsDragging(true);
-        setDragStart(canvasPos);
+      if (hitPointId) {
+        // Start dragging point
+        setDragMode("point");
+        setDragPointId(hitPointId);
+        setSelectedPointId(hitPointId);
+        selectLinkedPoint(hitPointId, "pixel");
+      } else {
+        // Start panning
+        setDragMode("pan");
+        setSelectedPointId(null);
       }
+
+      setIsDragging(true);
+      setDragStart(canvasPos);
     },
     [image, getCanvasMousePos, hitTestPoint, selectLinkedPoint]
   );
 
   const onCanvasMove = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (!isDragging || !image) return;
 
-      const canvasPos = getCanvasMousePos(e);
+      const canvasPos = getCanvasClientPos(e.clientX, e.clientY);
 
       if (dragMode === "point" && dragPointId) {
         const imagePos = screenToImage(canvasPos.x, canvasPos.y);
@@ -459,7 +478,6 @@ export default function ImageCanvas({
     [
       isDragging,
       image,
-      getCanvasMousePos,
       dragMode,
       dragPointId,
       screenToImage,
@@ -471,11 +489,34 @@ export default function ImageCanvas({
     ]
   );
 
-  const onCanvasUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const onCanvasUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    // only respond if this matches captured pointer (or if none was set)
+    if (pointerIdRef.current !== null && e.pointerId !== pointerIdRef.current) {
+      return;
+    }
+
+    try {
+      (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+    } catch (err) {
+      // ignore
+    }
+    pointerIdRef.current = null;
+
     setIsDragging(false);
     setDragMode(null);
     setDragPointId(null);
   }, []);
+
+  const onPointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      // treat pointercancel like an up/cancel
+      pointerIdRef.current = null;
+      setIsDragging(false);
+      setDragMode(null);
+      setDragPointId(null);
+    },
+    []
+  );
 
   // Right-click deletion removed intentionally to avoid accidental removals.
   // Previously this component removed points on contextmenu; that behavior
@@ -727,10 +768,10 @@ export default function ImageCanvas({
           width={Math.round(CANVAS_WIDTH)}
           height={Math.round(CANVAS_HEIGHT)}
           onDoubleClick={onDoubleClick}
-          onMouseDown={onCanvasDown}
-          onMouseMove={onCanvasMove}
-          onMouseUp={onCanvasUp}
-          onMouseLeave={onCanvasUp}
+          onPointerDown={onCanvasDown}
+          onPointerMove={onCanvasMove}
+          onPointerUp={onCanvasUp}
+          onPointerCancel={onPointerCancel}
           data-testid="canvas"
           style={{
             border: "1px solid #333",

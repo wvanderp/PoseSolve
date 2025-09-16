@@ -4,6 +4,8 @@
 
 PoseSolve is a React + TypeScript web application with a Rust WebAssembly computational core for estimating camera pose (position + orientation) from user-identified landmarks. The app runs entirely in-browser with offline capability.
 
+please use the tests to verify your solutions
+
 ## Working Effectively
 
 ### Bootstrap and Build (NEVER CANCEL - Allow full completion times)
@@ -87,16 +89,19 @@ npm run lint
 
 - **Takes ~5 seconds**. NEVER CANCEL.
 - **Note**: Test files show errors for missing test dependencies (vitest, @testing-library/react) - this is expected.
-- **Alternative**: Use `--skipLibCheck` flag to ignore test file errors and focus on main application code.
 
 ### Component Tests
+
+these component test are vital for ensuring UI integrity after changes.
+please make sure that they are changed along with any UI changes.
+
+Run the Cypress component tests to validate the changes you made:
 
 ```bash
 npm run ct:run
 ```
 
 - **Network restriction note**: **Cypress binary fails in firewall-restricted environments**. This is expected and documented.
-- **Alternative**: Use `npx tsc --noEmit` for basic validation instead.
 
 ### Rust Tests
 

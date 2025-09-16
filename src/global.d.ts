@@ -13,3 +13,17 @@ declare module 'crates/solver' {
   const value: any;
   export default value;
 }
+
+// Allow importing image assets (Vite will handle bundling/resolution)
+declare module '*.png' {
+  const src: string;
+  export default src;
+}
+declare module '*.jpg' {
+  const src: string;
+  export default src;
+}
+declare module '*.svg' {
+  const src: string;
+  export default src;
+}

@@ -15,24 +15,25 @@
     "test": "npm run lint && npm run test:vite && npm run ct:run"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.89.0",
     "comlink": "^4.4.2",
     "leaflet": "^1.9.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "zustand": "^5.0.8",
-    "@tanstack/react-query": "^5.87.1"
+    "react-leaflet": "^5.0.0",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@cypress/react": "^9.0.1",
+    "@cypress/vite-dev-server": "^7.0.0",
     "@types/leaflet": "^1.9.20",
-    "@types/react": "^19.1.12",
+    "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
+    "cypress": "^15.2.0",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.5",
-    "cypress": "^15.2.0",
-    "@cypress/vite-dev-server": "^7.0.0",
-    "@cypress/react": "^9.0.1",
     "vitest": "^3.2.4"
   }
 }

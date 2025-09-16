@@ -4,6 +4,7 @@ import type { SolveRequest, SolveResponse } from "./types/solver";
 import ImageCanvas from "./components/ImageCanvas";
 import WorldMap from "./components/WorldMap";
 import Toolbar from "./components/Toolbar";
+import PointsTable from "./components/PointsTable";
 import { useStore } from "./state/store";
 
 // Worker setup
@@ -124,6 +125,12 @@ export default function App() {
           <WorldMap height={520} />
         </div>
       </div>
+
+      {/* Points List */}
+      <div style={{ marginTop: 12 }}>
+        <PointsTable />
+      </div>
+
       {/* toolbar contains global action buttons and status */}
       {result && (
         <pre

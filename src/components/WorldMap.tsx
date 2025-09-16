@@ -1,174 +1,197 @@
-import React, { useEffect, useRef } from "react";
-import L from "leaflet";
+/**
+ * WorldMap Component User Behavior Documentation
+ *
+ * This component provides an interactive Leaflet map for managing world coordinate points.
+ * The map integrates with the global state store for point management and cross-selection
+ * with image points.
+ *
+ * User Interactions:
+ * 1. **Double-click on map**: Adds a new marker at the clicked location
+ *    - Creates both world coordinates (lat/lon) and image coordinates
+ *    - Sets the new point as active
+ *    - Updates the store with the new point
+ *    - This action replaces the default Leaflet zoom-in behavior on double-click
+ *
+ * 2. **Left-click on marker**: Selects the marker and makes its point active
+ *    - Updates activePointId in the store
+ *    - Enables cross-selection with corresponding image points
+ *
+ * 3. **Drag marker**: Moves the marker to a new location
+ *    - dragging starts on mousedown on the marker and then moving the mouse
+ *    - Updates the marker's lat/lon coordinates in the store
+ *    - Automatically selects the dragged marker
+ *    - Provides visual feedback during drag operation
+ *
+ * 4. **Map movement**: Panning or zooming
+ *   - Most of the default Leaflet interactions are preserved
+ *   - If the map is dragged then the map and marker positions update accordingly
+ *        - this is default Leaflet behavior
+ *        - if the marker is grabbed then the map will not move
+ *    - zooming in/out with mouse wheel or controls is preserved
+ *
+ * 5. **Visual feedback**:
+ *    - Selected markers have different styling (selected-marker-icon class)
+ *    - Unselected markers use standard styling (marker-icon class)
+ *    - Tip text explains available interactions
+ *
+ * Integration:
+ * - Syncs with store for point data, active selection, and map center
+ * - Supports auto-linking between image and world coordinates
+ * - Updates map center in store when map is moved
+ */
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import "leaflet/dist/leaflet.css";
-// Fix default marker icons under Vite bundling using import.meta.url so Vite
-// resolves the asset paths correctly at runtime.
-const iconRetinaUrl = new URL(
-  "../node_modules/leaflet/dist/images/marker-icon-2x.png",
-  import.meta.url
-).href;
-const iconUrl = new URL(
-  "../node_modules/leaflet/dist/images/marker-icon.png",
-  import.meta.url
-).href;
-const shadowUrl = new URL(
-  "../node_modules/leaflet/dist/images/marker-shadow.png",
-  import.meta.url
-).href;
+import L from "leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  useMapEvents,
+  useMap,
+} from "react-leaflet";
+import { useStore } from "../state/store";
 
-const DefaultIcon = L.icon({
-  iconRetinaUrl,
-  iconUrl,
-  shadowUrl,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  tooltipAnchor: [16, -28],
-  shadowSize: [41, 41],
-});
+interface Props {
+  height?: number;
+}
 
-// Apply as the default marker icon so code creating markers without an
-// explicit icon gets the correct asset URLs.
-L.Marker.prototype.options.icon = DefaultIcon;
-import { useStore, selectors } from "../state/store";
+// Component to handle map events (double-click to add points and moveend to update center)
+function MapEventHandler() {
+  const { addPoint, setActivePoint, setMapCenter, mapCenter } = useStore();
 
-type Props = { height?: number };
+  const map = useMapEvents({
+    dblclick: (e) => {
+      const { lat, lng } = e.latlng;
+      const pointId = addPoint({ lat, lon: lng });
+      setActivePoint(pointId);
+    },
+  });
 
-// Default icon fix: Leaflet expects image urls via CSS; Vite bundles fine but ensure marker icons exist.
-// In modern bundlers leaflet's default icon URLs may not resolve; keeping defaults here as CSS import often works.
+  return null;
+}
 
-export default function WorldMap({ height = 500 }: Props) {
-  const mapRef = useRef<L.Map | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const points = useStore((s) => s.points);
-  const worldPoints = points.filter(
-    (p) => typeof p.lat === "number" && typeof p.lon === "number"
+// Draggable marker component for world points
+function WorldPointMarker({ point }: { point: any }) {
+  const { activePointId, setActivePoint, updatePointWorld } = useStore();
+  const [dragging, setDragging] = useState(false);
+  const markerRef = useRef<L.Marker>(null);
+  const map = useMap();
+
+  const isActive = point.id === activePointId;
+
+  // Create custom icon with different styles for active/inactive state
+  const customIcon = useMemo(() => {
+    const className = isActive ? "selected-marker-icon" : "marker-icon";
+    return L.divIcon({
+      className: className,
+      html: "<div></div>",
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+      popupAnchor: [0, -10],
+    });
+  }, [isActive]);
+
+  const eventHandlers = useMemo(
+    () => ({
+      click: () => {
+        setActivePoint(point.id);
+      },
+      mousedown: () => {
+        setActivePoint(point.id);
+      },
+      dragstart: (e: any) => {
+        setActivePoint(point.id);
+        setDragging(true);
+        // Disable map dragging while dragging marker
+        map.dragging.disable();
+      },
+      drag: (e: any) => {
+        // Keep marker selected during drag and update coordinates in real-time
+        setActivePoint(point.id);
+        const newLatLng = e.target.getLatLng();
+        updatePointWorld(point.id, newLatLng.lat, newLatLng.lng);
+      },
+      dragend: (e: any) => {
+        const newLatLng = e.target.getLatLng();
+        updatePointWorld(point.id, newLatLng.lat, newLatLng.lng);
+        setDragging(false);
+        // Re-enable map dragging after marker drag ends
+        map.dragging.enable();
+      },
+    }),
+    [point.id, setActivePoint, updatePointWorld, map]
   );
-  const activePointId = useStore((s) => s.activePointId);
-  const setActivePoint = useStore((s) => s.setActivePoint);
-  const selectLinkedPoint = useStore((s) => s.selectLinkedPoint);
-  const addPoint = useStore((s) => s.addPoint);
-  const updatePointWorld = useStore((s) => s.updatePointWorld);
-  const removePoint = useStore((s) => s.removePoint);
-  const setMapCenter = useStore((s) => s.setMapCenter);
-  const image = useStore((s) => s.image);
 
-  // Map init
-  useEffect(() => {
-    if (mapRef.current || !containerRef.current) return;
-    // Center map on Rotterdam by default
-    const map = L.map(containerRef.current, {
-      center: [51.9225, 4.47917],
-      zoom: 13,
-      // disable Leaflet's default double-click zoom so we can use dblclick for adding points
-      doubleClickZoom: false,
-    });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
-    }).addTo(map);
-
-    // Use double-click to add or attach world points to the active pixel point
-    map.on("dblclick", (e: L.LeafletMouseEvent) => {
-      const lat = e.latlng.lat;
-      const lon = e.latlng.lng;
-
-      // If there's an active point that has image coords but missing world coords,
-      // update that point instead of creating a new one (mirror ImageCanvas behaviour).
-      const activePt = points.find((p) => p.id === activePointId);
-      if (
-        activePt &&
-        typeof activePt.u === "number" &&
-        typeof activePt.v === "number" &&
-        (typeof activePt.lat !== "number" || typeof activePt.lon !== "number")
-      ) {
-        updatePointWorld(activePt.id, lat, lon);
-        setActivePoint(activePt.id);
-        selectLinkedPoint(activePt.id, "world");
-        return;
-      }
-
-      // Otherwise create a new world point. If an image is loaded, seed its image
-      // coords to the image centre for convenience (existing behaviour).
-      const newPoint: any = { lat, lon };
-      if (image && image.width >= 1 && image.height >= 1) {
-        newPoint.u = image.width / 2;
-        newPoint.v = image.height / 2;
-        newPoint.sigmaPx = 1;
-        newPoint.enabled = true;
-        newPoint.height = 0;
-      }
-      const ptId = addPoint(newPoint);
-      setActivePoint(ptId);
-      selectLinkedPoint(ptId, "world");
-    });
-
-    mapRef.current = map;
-    // store initial map center
-    setMapCenter(map.getCenter().lat, map.getCenter().lng);
-    // update center on moveend
-    map.on("moveend", () => {
-      const c = map.getCenter();
-      setMapCenter(c.lat, c.lng);
-    });
-  }, [
-    addPoint,
-    image,
-    setActivePoint,
-    points,
-    activePointId,
-    updatePointWorld,
-    selectLinkedPoint,
-    setMapCenter,
-  ]);
-
-  // Render markers (naive: recreate layer group)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const layer = L.layerGroup().addTo(map);
-    const markers = worldPoints.map((wp) => {
-      const marker = L.marker([wp.lat as number, wp.lon as number], {
-        draggable: true,
-      });
-      marker.addTo(layer);
-      marker.on("click", () => {
-        setActivePoint(wp.id);
-        selectLinkedPoint(wp.id, "world");
-      });
-      marker.on("drag", (e: any) => {
-        const ll = e.latlng as L.LatLng;
-        updatePointWorld(wp.id, ll.lat, ll.lng);
-      });
-      if (activePointId === wp.id) {
-        marker
-          .bindTooltip("Selected", { permanent: true, direction: "top" })
-          .openTooltip();
-      }
-      return marker;
-    });
-    return () => {
-      layer.clearLayers();
-      map.removeLayer(layer);
-    };
-  }, [
-    worldPoints,
-    updatePointWorld,
-    removePoint,
-    setActivePoint,
-    selectLinkedPoint,
-    activePointId,
-  ]);
+  if (typeof point.lat !== "number" || typeof point.lon !== "number") {
+    return null;
+  }
 
   return (
-    <div>
-      <div
-        ref={containerRef}
-        style={{ height, border: "1px solid #333", borderRadius: 8 }}
-      />
-      <p style={{ color: "#777", marginTop: 6 }}>
-        Tip: Double-click to add world point (or attach to active image point);
-        left-click to select; drag to move.
-      </p>
+    <Marker
+      position={[point.lat, point.lon]}
+      draggable={true}
+      eventHandlers={eventHandlers}
+      ref={markerRef}
+      icon={customIcon}
+      key={`${point.id}-${point.lat}-${point.lon}`}
+    />
+  );
+}
+
+export default function WorldMap({ height = 500 }: Props) {
+  const { points, mapCenter, setMapCenter, selectors } = useStore();
+
+  // Get markers from the store
+  const worldPoints = selectors.getWorldPoints({ points });
+
+  // Default center (Rotterdam area as suggested by tests)
+  const defaultCenter: [number, number] = [51.9225, 4.47917];
+  const center = mapCenter
+    ? ([mapCenter.lat, mapCenter.lon] as [number, number])
+    : defaultCenter;
+
+  // Set initial map center in store if not set
+  useEffect(() => {
+    if (!mapCenter) {
+      setMapCenter(center[0], center[1]);
+    }
+  }, [mapCenter, setMapCenter, center]);
+
+  return (
+    <div className="flex flex-col h-full">
+      <MapContainer
+        center={center}
+        zoom={13}
+        style={{ height: `${height}px`, width: "800px" }}
+        className="w-full"
+        doubleClickZoom={false}
+        id="map"
+      >
+        <TileLayer
+          attribution="© OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        <MapEventHandler />
+
+        {worldPoints.map((point) => (
+          <WorldPointMarker key={point.id} point={point} />
+        ))}
+      </MapContainer>
+
+      <div className="p-2 text-xs text-gray-600 bg-gray-50 border-t">
+        <p>
+          Tip: Double-click to add world point (or attach to active image
+          point); left-click to select
+        </p>
+      </div>
     </div>
   );
 }

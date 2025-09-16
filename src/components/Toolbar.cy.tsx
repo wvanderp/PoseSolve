@@ -73,7 +73,21 @@ describe("Toolbar (component)", () => {
       />
     );
 
-    cy.contains("Solve").click();
+    // Solve button should be present and enabled
+    cy.contains("Solve").should("be.visible").and("not.be.disabled").click();
     cy.get("@onSolve").should("have.been.calledOnce");
+
+    // Update counts prop and ensure UI updates accordingly
+    const newCounts = { image: 3, world: 2, linked: 2 };
+    cy.mount(
+      <Toolbar
+        activePointId={null}
+        onDelete={onDelete}
+        onSolve={onSolve}
+        status={"Ready"}
+        counts={newCounts}
+      />
+    );
+    cy.contains("Points: 3 px, 2 world, linked: 2").should("exist");
   });
 });
