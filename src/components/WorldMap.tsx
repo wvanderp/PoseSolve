@@ -41,11 +41,9 @@
  */
 
 import React, {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -56,7 +54,8 @@ import {
   useMapEvents,
   useMap,
 } from "react-leaflet";
-import { useStore } from "../state/store";
+import { useStore, selectors } from "../state/store";
+import { useShallow } from "zustand/react/shallow";
 
 interface Props {
   height?: number;
@@ -78,9 +77,10 @@ function MapEventHandler() {
 }
 
 // Draggable marker component for world points
-function WorldPointMarker({ point }: { point: any }) {
-  const { activePointId, setActivePoint, updatePointWorld } = useStore();
-  const [dragging, setDragging] = useState(false);
+const WorldPointMarker = React.memo(function WorldPointMarker({ point }: { point: any }) {
+  const activePointId = useStore((s) => s.activePointId);
+  const setActivePoint = useStore((s) => s.setActivePoint);
+  const updatePointWorld = useStore((s) => s.updatePointWorld);
   const markerRef = useRef<L.Marker>(null);
   const map = useMap();
 
@@ -106,22 +106,15 @@ function WorldPointMarker({ point }: { point: any }) {
       mousedown: () => {
         setActivePoint(point.id);
       },
-      dragstart: (e: any) => {
+      dragstart: (_e: any) => {
         setActivePoint(point.id);
-        setDragging(true);
         // Disable map dragging while dragging marker
         map.dragging.disable();
       },
-      drag: (e: any) => {
-        // Keep marker selected during drag and update coordinates in real-time
-        setActivePoint(point.id);
-        const newLatLng = e.target.getLatLng();
-        updatePointWorld(point.id, newLatLng.lat, newLatLng.lng);
-      },
+      // No store updates during drag to avoid re-renders that would interrupt dragging
       dragend: (e: any) => {
         const newLatLng = e.target.getLatLng();
         updatePointWorld(point.id, newLatLng.lat, newLatLng.lng);
-        setDragging(false);
         // Re-enable map dragging after marker drag ends
         map.dragging.enable();
       },
@@ -140,16 +133,14 @@ function WorldPointMarker({ point }: { point: any }) {
       eventHandlers={eventHandlers}
       ref={markerRef}
       icon={customIcon}
-      key={`${point.id}-${point.lat}-${point.lon}`}
     />
   );
-}
+});
 
 export default function WorldMap({ height = 500 }: Props) {
-  const { points, mapCenter, setMapCenter, selectors } = useStore();
-
-  // Get markers from the store
-  const worldPoints = selectors.getWorldPoints({ points });
+  const mapCenter = useStore((s) => s.mapCenter);
+  const setMapCenter = useStore((s) => s.setMapCenter);
+  const worldPoints = useStore(useShallow((s) => selectors.getWorldPoints(s)));
 
   // Default center (Rotterdam area as suggested by tests)
   const defaultCenter: [number, number] = [51.9225, 4.47917];

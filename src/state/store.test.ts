@@ -1,8 +1,23 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
 
+const PERSIST_KEY = 'posesolve-assistant-store';
+
+const clearPersistedStore = () => {
+  useStore.persist.clearStorage();
+};
+
+type PersistedAssistantState = {
+  state: {
+    points: Array<{ id: string }>;
+    activePointId: string | null;
+  };
+  version: number;
+};
+
 describe('Store - Selection functionality (unified points)', () => {
   beforeEach(() => {
+    clearPersistedStore();
     // Reset store to initial state
     useStore.setState({ image: null, points: [], activePointId: null });
   });
@@ -38,6 +53,7 @@ describe('Store - Selection functionality (unified points)', () => {
 
 describe('Store - Height functionality', () => {
   beforeEach(() => {
+    clearPersistedStore();
     useStore.setState({ points: [] });
   });
 
@@ -77,6 +93,7 @@ describe('Store - Height functionality', () => {
 
 describe('Store - Removal and active clearing', () => {
   beforeEach(() => {
+    clearPersistedStore();
     useStore.setState({ points: [], activePointId: null });
   });
 
@@ -97,6 +114,7 @@ describe('Store - Removal and active clearing', () => {
 
 describe('Store - Selectors', () => {
   beforeEach(() => {
+    clearPersistedStore();
     useStore.setState({ points: [] });
   });
 
@@ -130,5 +148,46 @@ describe('Store - Selectors', () => {
     const worlds = state.selectors.getWorldPoints(state);
     expect(worlds.some(p => p.id === worldId)).toBe(true);
     expect(worlds.every(p => typeof p.lat === 'number' && typeof p.lon === 'number')).toBe(true);
+  });
+});
+
+describe('Store - Persistence', () => {
+  beforeEach(() => {
+    clearPersistedStore();
+    useStore.setState({ points: [], activePointId: null });
+  });
+
+  it('persists points and active point id to storage', async () => {
+    const { addPoint, setActivePoint } = useStore.getState();
+    const id = addPoint({ u: 100, v: 200, lat: 52.0, lon: 4.0 });
+    setActivePoint(id);
+
+    const storage = useStore.persist.getOptions().storage;
+    expect(storage).toBeTruthy();
+    const persisted = await storage?.getItem(PERSIST_KEY) as PersistedAssistantState | null;
+
+    expect(persisted?.state.activePointId).toBe(id);
+    expect(persisted?.state.points.some((p: { id: string }) => p.id === id)).toBe(true);
+  });
+
+  it('rehydrates points and active point id from storage', async () => {
+    const storage = useStore.persist.getOptions().storage;
+    expect(storage).toBeTruthy();
+
+    const persistedState = {
+      state: {
+        points: [{ id: 'pt_persisted', u: 10, v: 20, lat: 51.9, lon: 4.4, height: 0, enabled: true, sigmaPx: 1 }],
+        activePointId: 'pt_persisted',
+      },
+      version: 0,
+    };
+    useStore.setState({ points: [], activePointId: null });
+    await storage?.setItem(PERSIST_KEY, persistedState);
+    await useStore.persist.rehydrate();
+
+    const state = useStore.getState();
+    expect(state.points).toHaveLength(1);
+    expect(state.points[0].id).toBe('pt_persisted');
+    expect(state.activePointId).toBe('pt_persisted');
   });
 });

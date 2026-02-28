@@ -16,3 +16,5 @@ crates/solver/pkg/
 # Env
 *.env
 *.env.*
+
+coverage

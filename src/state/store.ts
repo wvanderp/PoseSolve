@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export type Point = {
   id: string;
@@ -60,7 +61,46 @@ export const selectors: Selectors = {
   getWorldPoints: (state) => state.points.filter(p => typeof p.lat === 'number' && typeof p.lon === 'number'),
 };
 
-export const useStore = create<State>((set, get) => ({
+const createMemoryStorage = (): Storage => {
+  const map = new Map<string, string>();
+  return {
+    get length() {
+      return map.size;
+    },
+    clear() {
+      map.clear();
+    },
+    getItem(key: string) {
+      return map.has(key) ? map.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(map.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      map.delete(key);
+    },
+    setItem(key: string, value: string) {
+      map.set(key, value);
+    },
+  };
+};
+
+const fallbackStorage = createMemoryStorage();
+
+const getSafeStorage = (): Storage => {
+  const candidate = (globalThis as { localStorage?: unknown }).localStorage as Partial<Storage> | undefined;
+  if (
+    candidate
+    && typeof candidate.getItem === 'function'
+    && typeof candidate.setItem === 'function'
+    && typeof candidate.removeItem === 'function'
+  ) {
+    return candidate as Storage;
+  }
+  return fallbackStorage;
+};
+
+export const useStore = create<State>()(persist((set, get) => ({
   // Default image (requested): Coolhaven / Erasmus medical center Rotterdam skyline
   image: {
     url: 'https://upload.wikimedia.org/wikipedia/commons/9/9e/Coolhaven_Erasmus_medical_center_Rotterdam_skyline.jpg',
@@ -143,4 +183,11 @@ export const useStore = create<State>((set, get) => ({
   },
   // expose selectors for tests
   selectors,
+}), {
+  name: 'posesolve-assistant-store',
+  storage: createJSONStorage(getSafeStorage),
+  partialize: (state) => ({
+    points: state.points,
+    activePointId: state.activePointId,
+  }),
 }));
