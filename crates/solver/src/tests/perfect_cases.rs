@@ -40,7 +40,7 @@ fn build_perfect_request(
         p2: 0.0,
     };
 
-    // Reference point = centroid of world points (mirrors solve_impl behaviour)
+    // Reference point = centroid of world points (mirrors solve_impl behavior)
     let n = world_pts.len() as f64;
     let ref_lat = world_pts.iter().map(|p| p.0).sum::<f64>() / n;
     let ref_lon = world_pts.iter().map(|p| p.1).sum::<f64>() / n;
@@ -272,7 +272,7 @@ fn perfect_high_covariance_clustered() {
 /// **Case 3 – Elevated viewpoint looking down at buildings.**
 ///
 /// Camera is on a high-rise roof (100 m altitude) looking down at ground-
-/// level structures with steep pitch.  Tests solver behaviour with large
+/// level structures with steep pitch.  Tests solver behavior with large
 /// negative pitch and vertical relief.
 #[test]
 fn perfect_elevated_looking_down() {
