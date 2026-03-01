@@ -15,7 +15,7 @@ use crate::types::{Corr, GaussianPrior, Image, Pixel, Priors, SolveRequest, Worl
 ///
 /// Tolerance: ≤ 50 m (haversine distance).
 #[test]
-fn coolhaven_pipeline_native_types_within_100m() {
+fn coolhaven_pipeline_native_types_within_50m() {
     // ── EXIF-derived image parameters ───────────────────────────────────
     let image_width: f64 = 3264.0;
     let image_height: f64 = 2448.0;
