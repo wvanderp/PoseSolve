@@ -59,6 +59,7 @@ import { useShallow } from "zustand/react/shallow";
 
 interface Props {
   height?: number;
+  cameraPosition?: { lat: number; lon: number } | null;
 }
 
 // Component to handle map events (double-click to add points and moveend to update center)
@@ -74,6 +75,29 @@ function MapEventHandler() {
   });
 
   return null;
+}
+
+// Static marker for the solved camera position
+function CameraMarker({ position }: { position: { lat: number; lon: number } }) {
+  const icon = useMemo(
+    () =>
+      L.divIcon({
+        className: "camera-marker-icon",
+        html: "<div>📷</div>",
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -14],
+      }),
+    []
+  );
+
+  return (
+    <Marker
+      position={[position.lat, position.lon]}
+      icon={icon}
+      interactive={false}
+    />
+  );
 }
 
 // Draggable marker component for world points
@@ -137,7 +161,7 @@ const WorldPointMarker = React.memo(function WorldPointMarker({ point }: { point
   );
 });
 
-export default function WorldMap({ height = 500 }: Props) {
+export default function WorldMap({ height = 500, cameraPosition }: Props) {
   const mapCenter = useStore((s) => s.mapCenter);
   const setMapCenter = useStore((s) => s.setMapCenter);
   const worldPoints = useStore(useShallow((s) => selectors.getWorldPoints(s)));
@@ -175,6 +199,8 @@ export default function WorldMap({ height = 500 }: Props) {
         {worldPoints.map((point) => (
           <WorldPointMarker key={point.id} point={point} />
         ))}
+
+        {cameraPosition && <CameraMarker position={cameraPosition} />}
       </MapContainer>
 
       <div className="p-2 text-xs text-gray-600 bg-gray-50 border-t">

@@ -3,6 +3,7 @@
 ## New Interaction Model
 
 ### Image Canvas
+
 - **Double-click** to add new pixel points
 - **Left-click** on existing points to select them
 - **Left-drag** to pan the image or move selected points
@@ -11,6 +12,7 @@
 - **Height editing** overlay allows setting elevation values
 
 ### World Map
+
 - **Single-click** on the map to add a world point
 - **Automatic linking** creates a pixel point at the image center and links them
 - **Cross-selection** between map and image points
@@ -18,6 +20,7 @@
 - **Right-click** markers to delete them
 
 ### Point Management
+
 - Points now have **height values** that can be edited via the overlay
 - **Cross-selection** shows linked points across both components
 - **1-to-1 linking** constraint ensures clean correspondences
@@ -45,6 +48,7 @@ The application includes comprehensive tests:
 - **Integration tests** for cross-component behavior
 
 Run tests with:
+
 ```bash
 npm run ct:run  # Cypress component tests
 ```

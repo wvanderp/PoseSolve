@@ -18,10 +18,14 @@
     "types": [
       "vite/client",
       "cypress"
-    ]
+    ],
+    "paths": {
+      "@solver/*": ["./crates/solver/pkg/*"]
+    }
   },
   "include": [
     "src",
-    "cypress"
+    "cypress",
+    "crates/solver/pkg"
   ]
 }

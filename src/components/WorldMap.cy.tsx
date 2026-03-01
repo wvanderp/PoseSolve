@@ -401,4 +401,24 @@ describe("WorldMap (component)", () => {
       expect(state.points).to.have.length(2);
     });
   });
+
+  it("renders camera pin when cameraPosition prop is provided", () => {
+    useStore.setState({ points: [], activePointId: null, image: null });
+
+    mount(
+      <WorldMap height={400} cameraPosition={{ lat: 51.9225, lon: 4.47917 }} />
+    );
+
+    // The camera marker uses the camera-marker-icon class
+    cy.get(".camera-marker-icon", { timeout: 10000 }).should("exist");
+    cy.get(".camera-marker-icon div").should("contain", "📷");
+  });
+
+  it("does not render camera pin when cameraPosition is null", () => {
+    useStore.setState({ points: [], activePointId: null, image: null });
+
+    mount(<WorldMap height={400} cameraPosition={null} />);
+
+    cy.get(".camera-marker-icon").should("not.exist");
+  });
 });

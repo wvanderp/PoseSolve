@@ -135,23 +135,41 @@ export const useStore = create<State>()(persist((set, get) => ({
     const hasImage = typeof p.u === 'number' && typeof p.v === 'number';
     const hasWorld = typeof p.lat === 'number' && typeof p.lon === 'number';
 
-    // If user supplied image coords but not world coords, use current map center
-    if (hasImage && !hasWorld && state.mapCenter) {
-      filled.lat = state.mapCenter.lat;
-      filled.lon = state.mapCenter.lon;
+    // Compute centroid of existing points for each side (fallback to viewport center)
+    const imagePoints = state.points.filter(pt => typeof pt.u === 'number' && typeof pt.v === 'number');
+    const worldPoints = state.points.filter(pt => typeof pt.lat === 'number' && typeof pt.lon === 'number');
+
+    const imageCentroid = imagePoints.length > 0
+      ? {
+          u: imagePoints.reduce((sum, pt) => sum + pt.u!, 0) / imagePoints.length,
+          v: imagePoints.reduce((sum, pt) => sum + pt.v!, 0) / imagePoints.length,
+        }
+      : state.imageCenter;
+
+    const worldCentroid = worldPoints.length > 0
+      ? {
+          lat: worldPoints.reduce((sum, pt) => sum + pt.lat!, 0) / worldPoints.length,
+          lon: worldPoints.reduce((sum, pt) => sum + pt.lon!, 0) / worldPoints.length,
+        }
+      : state.mapCenter;
+
+    // If user supplied image coords but not world coords, use centroid of world points
+    if (hasImage && !hasWorld && worldCentroid) {
+      filled.lat = worldCentroid.lat;
+      filled.lon = worldCentroid.lon;
     }
-    // If user supplied world coords but not image coords, use current image center
-    if (hasWorld && !hasImage && state.imageCenter) {
-      filled.u = state.imageCenter.u;
-      filled.v = state.imageCenter.v;
+    // If user supplied world coords but not image coords, use centroid of image points
+    if (hasWorld && !hasImage && imageCentroid) {
+      filled.u = imageCentroid.u;
+      filled.v = imageCentroid.v;
     }
-    // If neither side supplied, fall back to centers (image center always exists)
+    // If neither side supplied, fall back to centroids (image centroid always exists)
     if (!hasImage && !hasWorld) {
-      filled.u = filled.u ?? state.imageCenter.u;
-      filled.v = filled.v ?? state.imageCenter.v;
-      if (state.mapCenter) {
-        filled.lat = filled.lat ?? state.mapCenter.lat;
-        filled.lon = filled.lon ?? state.mapCenter.lon;
+      filled.u = filled.u ?? imageCentroid.u;
+      filled.v = filled.v ?? imageCentroid.v;
+      if (worldCentroid) {
+        filled.lat = filled.lat ?? worldCentroid.lat;
+        filled.lon = filled.lon ?? worldCentroid.lon;
       }
     }
 

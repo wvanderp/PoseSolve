@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useStore, selectors } from "../state/store";
 import { fileToDataUrl, loadImage } from "../utils/image";
+import { saveImageToIDB, loadImageFromIDB } from "../utils/imageDB";
 
 /**
  * ImageCanvas – Desired behaviour specification
@@ -158,6 +159,8 @@ export default function ImageCanvas({
 
   const [heightValue, setHeightValue] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Track any blob object URL we created so we can revoke it when replaced
+  const objectUrlRef = useRef<string | null>(null);
 
   // Store state
   const image = useStore((state) => state.image);
@@ -333,6 +336,17 @@ export default function ImageCanvas({
         setLoadError(null);
         const dataUrl = await fileToDataUrl(file);
         const img = await loadImage(dataUrl);
+
+        // Persist the raw blob to IndexedDB so it survives page reloads
+        saveImageToIDB(file, file.name, img.naturalWidth, img.naturalHeight).catch(
+          (err) => console.warn("Failed to save image to IndexedDB:", err)
+        );
+
+        // Revoke any previously created object URL to free memory
+        if (objectUrlRef.current) {
+          URL.revokeObjectURL(objectUrlRef.current);
+          objectUrlRef.current = null;
+        }
 
         // Update store with new image info
         setImage({
@@ -648,6 +662,41 @@ export default function ImageCanvas({
     imagePoints,
     selectedPointId,
   ]);
+
+  // On mount: restore image from IndexedDB if no image is currently in the store
+  useEffect(() => {
+    let cancelled = false;
+    if (image !== null) return; // store already has an image – nothing to restore
+
+    loadImageFromIDB()
+      .then((stored) => {
+        if (cancelled || !stored) return;
+        const objectUrl = URL.createObjectURL(stored.blob);
+        objectUrlRef.current = objectUrl;
+        setImage({
+          url: objectUrl,
+          width: stored.width,
+          height: stored.height,
+          name: stored.name,
+        });
+      })
+      .catch((err) => {
+        if (!cancelled) console.warn("Could not restore image from IndexedDB:", err);
+      });
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Revoke object URL on unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Load initial image effect
   useEffect(() => {
