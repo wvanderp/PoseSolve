@@ -224,20 +224,15 @@ fn multi_start_optimise(
     // and u=-ref_alt would be ~0 m MSL.  We try several altitudes to
     // cover ground-level cameras looking up at buildings as well as
     // elevated viewpoints.
-    // Also include -ref_alt + 10.0 to represent camera at ~10m above MSL,
-    // which is common for ground-level photography.
     let alt_candidates = [
         base[2],                               // heuristic (min_u − 10)
         min_u - 50.0,                          // well below lowest point
         -(mu - min_u).abs().max(50.0) - min_u, // approximately ground level
-        min_u - 5.0,                           // just below lowest point
-        mu - 100.0,                            // well below mean altitude
     ];
 
     // Pitch candidates: base pitch  ± offsets to cover ground-level cameras
     // looking up at tall buildings and elevated/aerial viewpoints.
-    // Extended range to cover more scenarios including upward-looking cameras.
-    let pitch_offsets = [0.0, 10.0, 20.0, -10.0, -20.0, 30.0, -30.0, 40.0, -40.0];
+    let pitch_offsets = [0.0, 20.0, -20.0, 40.0];
 
     // Try multiple yaw offsets × distance scales × altitude levels × pitch offsets
     let yaw_offsets = [
