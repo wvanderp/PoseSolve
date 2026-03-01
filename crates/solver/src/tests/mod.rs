@@ -5,4 +5,5 @@ mod geo_tests;
 mod helpers;
 mod input_validation;
 mod optimizer_tests;
+mod perfect_cases;
 mod projection_tests;
