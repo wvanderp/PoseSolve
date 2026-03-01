@@ -228,11 +228,6 @@ fn Pathe() {
 
     // ── Solve ───────────────────────────────────────────────────────────
     let response = solve_impl(&req).expect("solve must succeed");
-    
-    eprintln!("\n=== PATHE DEBUG ===");
-    eprintln!("Pose: lat={}, lon={}, alt={}", response.pose.lat, response.pose.lon, response.pose.alt);
-    eprintln!("Angles: yaw={:.1}°, pitch={:.1}°, roll={:.1}°", response.pose.yaw_deg, response.pose.pitch_deg, response.pose.roll_deg);
-    eprintln!("Diagnostics: RMSE={:.2}px", response.diagnostics.rmse_px);
 
     // ── Verify position within 50 m ────────────────────────────────────
     // (Pinhole model cannot achieve tighter accuracy for this scene;
@@ -245,7 +240,6 @@ fn Pathe() {
         expected_lat,
         expected_lon,
     );
-    eprintln!("Distance to expected: {:.2}m", distance_m);
 
     assert!(
         distance_m <= 50.0,
@@ -391,47 +385,6 @@ fn Maas() {
     // ── Solve ───────────────────────────────────────────────────────────
     let response = solve_impl(&req).expect("solve must succeed");
 
-    eprintln!("\n=== MAAS DEBUG ===");
-    eprintln!("Pose: lat={}, lon={}, alt={}", response.pose.lat, response.pose.lon, response.pose.alt);
-    eprintln!("Angles: yaw={:.1}°, pitch={:.1}°, roll={:.1}°", response.pose.yaw_deg, response.pose.pitch_deg, response.pose.roll_deg);
-    eprintln!("Intrinsics: focal_px={:.1}, k1={:.6}, k2={:.6}", response.intrinsics.focal_px, response.intrinsics.k1, response.intrinsics.k2);
-    eprintln!("Diagnostics: RMSE={:.2}px, warnings={:?}", response.diagnostics.rmse_px, response.diagnostics.warnings);
-    eprintln!("Residuals: {:?}", response.diagnostics.residuals_px);
-    
-    // Debug projection
-    use crate::geo::lla_to_enu;
-    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
-    
-    let n = req.correspondences.len() as f64;
-    let ref_lat = req.correspondences.iter().map(|c| c.world.lat).sum::<f64>() / n;
-    let ref_lon = req.correspondences.iter().map(|c| c.world.lon).sum::<f64>() / n;
-    let ref_alt = req.correspondences.iter().map(|c| c.world.alt.unwrap_or(0.0)).sum::<f64>() / n;
-    
-    let cam_enu = lla_to_enu(response.pose.lat, response.pose.lon, response.pose.alt, ref_lat, ref_lon, ref_alt);
-    eprintln!("Camera ENU: ({:.1}, {:.1}, {:.1})", cam_enu[0], cam_enu[1], cam_enu[2]);
-    
-    let rot = rotation_enu_to_cam(response.pose.yaw_deg, response.pose.pitch_deg, response.pose.roll_deg);
-    let intr = CameraIntrinsics {
-        focal_px: response.intrinsics.focal_px,
-        cx: image_width / 2.0,
-        cy: image_height / 2.0,
-        k1: response.intrinsics.k1,
-        k2: response.intrinsics.k2,
-        p1: response.intrinsics.p1,
-        p2: response.intrinsics.p2,
-    };
-    
-    eprintln!("\nProjections:");
-    for (i, c) in req.correspondences.iter().enumerate() {
-        let pt_enu = lla_to_enu(c.world.lat, c.world.lon, c.world.alt.unwrap_or(0.0), ref_lat, ref_lon, ref_alt);
-        if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
-            let err = ((u - c.pixel.u).powi(2) + (v - c.pixel.v).powi(2)).sqrt();
-            eprintln!("  pt{}: proj=({:.1}, {:.1}), actual=({:.1}, {:.1}), err={:.1}px", i, u, v, c.pixel.u, c.pixel.v, err);
-        } else {
-            eprintln!("  pt{}: BEHIND CAMERA", i);
-        }
-    }
-
     // ── Verify position within 50 m ────────────────────────────────────
     // (Pinhole model cannot achieve tighter accuracy for this scene;
     //  see doc comment above.)
@@ -456,26 +409,114 @@ fn Maas() {
     );
 }
 
-/// Debug test to search for the best camera position
+/// Verify projection from known correct position
 #[test]
-fn debug_maas_grid_search() {
+fn verify_maas_projection_from_correct_position() {
     use crate::geo::lla_to_enu;
     use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
-    use crate::types::{Corr, Pixel, WorldLla};
 
     let image_width: f64 = 4032.0;
     let image_height: f64 = 3024.0;
-    let focal_length_35mm: f64 = 27.0;
-    let focal_px = (focal_length_35mm / 36.0) * image_width;
+    let focal_px = (27.0 / 36.0) * image_width;  // 3024
+
+    // Expected (correct) camera position
+    let cam_lat = 51.916810141229455;
+    let cam_lon = 4.491832827359327;
+    let cam_alt = 10.0;  // Assume ground level
+
+    // World points with pixel coordinates
+    let correspondences: Vec<(&str, f64, f64, f64, f64, f64)> = vec![
+        ("pt0", 51.908407170731785, 4.4884439705492705, 133.0, 1637.72, 1559.00),
+        ("pt1", 51.90653193209267, 4.487362504005433, 149.0, 1352.03, 1673.15),
+        ("pt2", 51.90745197954069, 4.489266872406007, 98.0, 829.07, 1867.68),
+        ("pt3", 51.91639663828099, 4.491353631019593, 4.2, 2223.98, 2629.30),
+        ("pt4", 51.90680331495428, 4.489020109176637, 150.0, 859.34, 1635.09),
+        ("pt5", 51.91016236948932, 4.488526582717896, 17.0, 1502.97, 2309.31),
+        ("pt6", 51.90727657626541, 4.48969602584839, 92.0, 619.92, 1891.30),
+    ];
+
+    let n = correspondences.len() as f64;
+    let ref_lat = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
+    let ref_lon = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
+    let ref_alt = correspondences.iter().map(|c| c.3).sum::<f64>() / n;
+
+    let cam_enu = lla_to_enu(cam_lat, cam_lon, cam_alt, ref_lat, ref_lon, ref_alt);
+    eprintln!("\n=== VERIFY PROJECTION FROM CORRECT POSITION ===");
+    eprintln!("Camera ENU: ({:.1}, {:.1}, {:.1})", cam_enu[0], cam_enu[1], cam_enu[2]);
+
+    // Try different yaw and pitch combinations to find what works
+    let intr = CameraIntrinsics {
+        focal_px, cx: image_width / 2.0, cy: image_height / 2.0, 
+        k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
+    };
+
+    let mut best_rmse = 1e9;
+    let mut best_yaw = 0.0;
+    let mut best_pitch = 0.0;
+
+    for yaw in (0..360).step_by(1) {
+        for pitch in -90..=90 {
+            let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, 0.0);
+            
+            let mut sse = 0.0;
+            let mut valid = 0;
+            for &(_, lat, lon, alt, u_actual, v_actual) in &correspondences {
+                let pt_enu = lla_to_enu(lat, lon, alt, ref_lat, ref_lon, ref_alt);
+                if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
+                    sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
+                    valid += 1;
+                }
+            }
+            
+            if valid == correspondences.len() {
+                let rmse = (sse / n).sqrt();
+                if rmse < best_rmse {
+                    best_rmse = rmse;
+                    best_yaw = yaw as f64;
+                    best_pitch = pitch as f64;
+                }
+            }
+        }
+    }
+
+    eprintln!("Best orientation: yaw={:.0}°, pitch={:.0}°, RMSE={:.1}px", best_yaw, best_pitch, best_rmse);
+    
+    // Show projections for best orientation
+    let rot = rotation_enu_to_cam(best_yaw, best_pitch, 0.0);
+    eprintln!("\nProjections at best orientation:");
+    for &(name, lat, lon, alt, u_actual, v_actual) in &correspondences {
+        let pt_enu = lla_to_enu(lat, lon, alt, ref_lat, ref_lon, ref_alt);
+        if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
+            let err = ((u - u_actual).powi(2) + (v - v_actual).powi(2)).sqrt();
+            eprintln!("  {}: proj=({:.0}, {:.0}), actual=({:.0}, {:.0}), err={:.0}px", 
+                     name, u, v, u_actual, v_actual, err);
+        } else {
+            eprintln!("  {}: BEHIND CAMERA", name);
+        }
+    }
+}
+
+/// Verify projection from correct position with alt/roll search
+#[test]
+fn verify_maas_full_search() {
+    use crate::geo::lla_to_enu;
+    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
+
+    let image_width: f64 = 4032.0;
+    let image_height: f64 = 3024.0;
+    let focal_px = (27.0 / 36.0) * image_width;
+
+    let cam_lat = 51.916810141229455;
+    let cam_lon = 4.491832827359327;
 
     let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
-        (51.908407170731785, 4.4884439705492705, 133.0, 1637.7157907279086, 1558.9968717392005),
-        (51.90653193209267, 4.487362504005433, 149.0, 1352.0297597086417, 1673.15297466213),
-        (51.90745197954069, 4.489266872406007, 98.0, 829.0744946310194, 1867.6816573522428),
-        (51.91639663828099, 4.491353631019593, 4.2, 2223.9808984053425, 2629.296445215229),
-        (51.90680331495428, 4.489020109176637, 150.0, 859.3446734750117, 1635.091125679091),
-        (51.91016236948932, 4.488526582717896, 17.0, 1502.969810172715, 2309.3149769078573),
-        (51.90727657626541, 4.48969602584839, 92.0, 619.9160985842653, 1891.2981323925628),
+        (51.908407170731785, 4.4884439705492705, 133.0, 1637.72, 1559.00),
+        (51.90653193209267, 4.487362504005433, 149.0, 1352.03, 1673.15),
+        (51.90745197954069, 4.489266872406007, 98.0, 829.07, 1867.68),
+        (51.91639663828099, 4.491353631019593, 4.2, 2223.98, 2629.30),
+        (51.90680331495428, 4.489020109176637, 150.0, 859.34, 1635.09),
+        (51.91016236948932, 4.488526582717896, 17.0, 1502.97, 2309.31),
+        (51.90727657626541, 4.48969602584839, 92.0, 619.92, 1891.30),
     ];
 
     let n = correspondences.len() as f64;
@@ -483,30 +524,98 @@ fn debug_maas_grid_search() {
     let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
     let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
 
-    let intr = CameraIntrinsics {
-        focal_px, cx: image_width / 2.0, cy: image_height / 2.0, k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
-    };
-
-    eprintln!("\n=== GRID SEARCH for best camera position ===");
-    eprintln!("Reference: lat={:.6}, lon={:.6}, alt={:.1}", ref_lat, ref_lon, ref_alt);
+    eprintln!("\n=== FULL SEARCH with altitude and roll ===");
 
     let mut best_rmse = 1e9;
     let mut best_params: (f64, f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0, 0.0);
 
-    // Grid search
-    for lat_off in [-0.01, -0.005, 0.0, 0.005, 0.01, 0.015] {
-        for lon_off in [-0.01, -0.005, 0.0, 0.005, 0.01] {
-            for alt in [5.0, 10.0, 50.0, 100.0, 200.0, 300.0, 400.0] {
-                for yaw in (0..360).step_by(15) {
-                    for pitch in [-60, -45, -30, -15, 0, 15] {
-                        let test_lat = ref_lat + lat_off;
-                        let test_lon = ref_lon + lon_off;
-                        let test_yaw = yaw as f64;
-                        let test_pitch = pitch as f64;
+    for alt in [2.0, 5.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0] {
+        for yaw in (150..=230).step_by(2) {
+            for pitch in -45..=45 {
+                for roll in (-45..=45).step_by(5) {
+                    let intr = CameraIntrinsics {
+                        focal_px, cx: image_width / 2.0, cy: image_height / 2.0, 
+                        k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
+                    };
 
-                        let cam_enu = lla_to_enu(test_lat, test_lon, alt, ref_lat, ref_lon, ref_alt);
-                        let rot = rotation_enu_to_cam(test_yaw, test_pitch, 0.0);
+                    let cam_enu = lla_to_enu(cam_lat, cam_lon, alt, ref_lat, ref_lon, ref_alt);
+                    let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, roll as f64);
+                    
+                    let mut sse = 0.0;
+                    let mut valid = 0;
+                    for &(lat, lon, pt_alt, u_actual, v_actual) in &correspondences {
+                        let pt_enu = lla_to_enu(lat, lon, pt_alt, ref_lat, ref_lon, ref_alt);
+                        if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
+                            sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
+                            valid += 1;
+                        }
+                    }
+                    
+                    if valid == correspondences.len() {
+                        let rmse = (sse / n).sqrt();
+                        if rmse < best_rmse {
+                            best_rmse = rmse;
+                            best_params = (alt, yaw as f64, pitch as f64, roll as f64, 0.0);
+                            if rmse < 100.0 {
+                                eprintln!("Found: alt={:.0}, yaw={}, pitch={}, roll={}, RMSE={:.1}px", 
+                                          alt, yaw, pitch, roll, rmse);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
+    eprintln!("\nBest result: alt={:.0}m, yaw={:.0}°, pitch={:.0}°, roll={:.0}°, RMSE={:.1}px", 
+              best_params.0, best_params.1, best_params.2, best_params.3, best_rmse);
+}
+
+/// Verify with focal length and distortion search
+#[test]
+fn verify_maas_with_focal_distortion() {
+    use crate::geo::lla_to_enu;
+    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
+
+    let image_width: f64 = 4032.0;
+    let image_height: f64 = 3024.0;
+
+    let cam_lat = 51.916810141229455;
+    let cam_lon = 4.491832827359327;
+
+    let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
+        (51.908407170731785, 4.4884439705492705, 133.0, 1637.72, 1559.00),
+        (51.90653193209267, 4.487362504005433, 149.0, 1352.03, 1673.15),
+        (51.90745197954069, 4.489266872406007, 98.0, 829.07, 1867.68),
+        (51.91639663828099, 4.491353631019593, 4.2, 2223.98, 2629.30),
+        (51.90680331495428, 4.489020109176637, 150.0, 859.34, 1635.09),
+        (51.91016236948932, 4.488526582717896, 17.0, 1502.97, 2309.31),
+        (51.90727657626541, 4.48969602584839, 92.0, 619.92, 1891.30),
+    ];
+
+    let n = correspondences.len() as f64;
+    let ref_lat = correspondences.iter().map(|c| c.0).sum::<f64>() / n;
+    let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
+    let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
+
+    eprintln!("\n=== SEARCH with focal length and distortion ===");
+
+    let mut best_rmse = 1e9;
+    let mut best_params: (f64, f64, f64, f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+    for focal_px in [2500.0, 2700.0, 2900.0, 3024.0, 3100.0, 3300.0, 3500.0] {
+        for alt in [5.0, 10.0, 15.0, 20.0] {
+            for yaw in (180..=220).step_by(2) {
+                for pitch in -30..=30 {
+                    for k1 in [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3] {
+                        let intr = CameraIntrinsics {
+                            focal_px, cx: image_width / 2.0, cy: image_height / 2.0, 
+                            k1, k2: 0.0, p1: 0.0, p2: 0.0,
+                        };
+
+                        let cam_enu = lla_to_enu(cam_lat, cam_lon, alt, ref_lat, ref_lon, ref_alt);
+                        let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, 0.0);
+                        
                         let mut sse = 0.0;
                         let mut valid = 0;
                         for &(lat, lon, pt_alt, u_actual, v_actual) in &correspondences {
@@ -516,15 +625,15 @@ fn debug_maas_grid_search() {
                                 valid += 1;
                             }
                         }
-
+                        
                         if valid == correspondences.len() {
                             let rmse = (sse / n).sqrt();
                             if rmse < best_rmse {
                                 best_rmse = rmse;
-                                best_params = (test_lat, test_lon, alt, test_yaw, test_pitch);
-                                if rmse < 100.0 {
-                                    eprintln!("Found: lat={:.6}, lon={:.6}, alt={:.0}, yaw={:.0}, pitch={:.0}, RMSE={:.1}px",
-                                              test_lat, test_lon, alt, test_yaw, test_pitch, rmse);
+                                best_params = (focal_px, alt, yaw as f64, pitch as f64, 0.0, k1, 0.0);
+                                if rmse < 50.0 {
+                                    eprintln!("Found: focal={:.0}, alt={:.0}, yaw={}, pitch={}, k1={:.2}, RMSE={:.1}px", 
+                                              focal_px, alt, yaw, pitch, k1, rmse);
                                 }
                             }
                         }
@@ -534,334 +643,410 @@ fn debug_maas_grid_search() {
         }
     }
 
-    eprintln!("\n=== BEST RESULT ===");
-    eprintln!("Position: lat={:.6}, lon={:.6}, alt={:.0}m", best_params.0, best_params.1, best_params.2);
-    eprintln!("Orientation: yaw={:.0}°, pitch={:.0}°", best_params.3, best_params.4);
-    eprintln!("RMSE: {:.1}px", best_rmse);
-    
-    let expected_lat = 51.916810141229455;
-    let expected_lon = 4.491832827359327;
-    let dist_to_expected = 111320.0 * ((best_params.0 - expected_lat).powi(2) + 
-                                       (best_params.1 - expected_lon).powi(2) * (expected_lat.to_radians().cos()).powi(2)).sqrt();
-    eprintln!("Distance to expected position: {:.0}m", dist_to_expected);
+    eprintln!("\nBest result:");
+    eprintln!("  focal={:.0}px, alt={:.0}m, yaw={:.0}°, pitch={:.0}°, k1={:.2}", 
+              best_params.0, best_params.1, best_params.2, best_params.3, best_params.5);
+    eprintln!("  RMSE={:.1}px", best_rmse);
 }
 
-/// Debug test to search near the solver's result
+/// Trace through projection step by step
 #[test]
-fn debug_maas_fine_search() {
+fn trace_maas_projection() {
     use crate::geo::lla_to_enu;
-    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
+    use crate::projection::{rotation_enu_to_cam, project_point, mat3_vec, CameraIntrinsics};
 
     let image_width: f64 = 4032.0;
     let image_height: f64 = 3024.0;
-    let focal_length_35mm: f64 = 27.0;
-    let focal_px = (focal_length_35mm / 36.0) * image_width;
-
-    let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
-        (51.908407170731785, 4.4884439705492705, 133.0, 1637.7157907279086, 1558.9968717392005),
-        (51.90653193209267, 4.487362504005433, 149.0, 1352.0297597086417, 1673.15297466213),
-        (51.90745197954069, 4.489266872406007, 98.0, 829.0744946310194, 1867.6816573522428),
-        (51.91639663828099, 4.491353631019593, 4.2, 2223.9808984053425, 2629.296445215229),
-        (51.90680331495428, 4.489020109176637, 150.0, 859.3446734750117, 1635.091125679091),
-        (51.91016236948932, 4.488526582717896, 17.0, 1502.969810172715, 2309.3149769078573),
-        (51.90727657626541, 4.48969602584839, 92.0, 619.9160985842653, 1891.2981323925628),
-    ];
-
-    let n = correspondences.len() as f64;
-    let ref_lat = correspondences.iter().map(|c| c.0).sum::<f64>() / n;
-    let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
-    let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
-
-    let intr = CameraIntrinsics {
-        focal_px, cx: image_width / 2.0, cy: image_height / 2.0, k1: 0.024, k2: 0.00006, p1: 0.0, p2: 0.0,
-    };
-
-    // Solver's result
-    let solver_lat = 51.893679567524025;
-    let solver_lon = 4.47473700793806;
-    let solver_alt = 368.4796169262279;
-    let solver_yaw = 108.7;
-    let solver_pitch = -65.9;
-    let solver_roll = -41.1;
-
-    eprintln!("\n=== Fine search around solver's result ===");
-
-    let mut best_rmse = 1e9;
-    let mut best_params: (f64, f64, f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-    // Fine grid around solver
-    for lat_off in [-0.002, -0.001, 0.0, 0.001, 0.002] {
-        for lon_off in [-0.002, -0.001, 0.0, 0.001, 0.002] {
-            for alt_off in [-50.0, -25.0, 0.0, 25.0, 50.0] {
-                for yaw_off in [-10.0, -5.0, 0.0, 5.0, 10.0] {
-                    for pitch_off in [-10.0, -5.0, 0.0, 5.0, 10.0] {
-                        for roll_off in [-10.0, -5.0, 0.0, 5.0, 10.0] {
-                            let test_lat = solver_lat + lat_off;
-                            let test_lon = solver_lon + lon_off;
-                            let test_alt = solver_alt + alt_off;
-                            let test_yaw = solver_yaw + yaw_off;
-                            let test_pitch = solver_pitch + pitch_off;
-                            let test_roll = solver_roll + roll_off;
-
-                            let cam_enu = lla_to_enu(test_lat, test_lon, test_alt, ref_lat, ref_lon, ref_alt);
-                            let rot = rotation_enu_to_cam(test_yaw, test_pitch, test_roll);
-
-                            let mut sse = 0.0;
-                            let mut valid = 0;
-                            for &(lat, lon, pt_alt, u_actual, v_actual) in &correspondences {
-                                let pt_enu = lla_to_enu(lat, lon, pt_alt, ref_lat, ref_lon, ref_alt);
-                                if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
-                                    sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
-                                    valid += 1;
-                                }
-                            }
-
-                            if valid == correspondences.len() {
-                                let rmse = (sse / n).sqrt();
-                                if rmse < best_rmse {
-                                    best_rmse = rmse;
-                                    best_params = (test_lat, test_lon, test_alt, test_yaw, test_pitch, test_roll);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    eprintln!("Best found: RMSE={:.1}px", best_rmse);
-    eprintln!("Params: lat={:.6}, lon={:.6}, alt={:.1}, yaw={:.1}, pitch={:.1}, roll={:.1}",
-              best_params.0, best_params.1, best_params.2, best_params.3, best_params.4, best_params.5);
-
-    // Now search around expected position with extreme angles
-    let expected_lat = 51.916810141229455;
-    let expected_lon = 4.491832827359327;
-
-    eprintln!("\n=== Search around EXPECTED position with various orientations ===");
-    best_rmse = 1e9;
-
-    for lat_off in [-0.002, -0.001, 0.0, 0.001, 0.002] {
-        for lon_off in [-0.002, -0.001, 0.0, 0.001, 0.002] {
-            for alt in [5.0, 10.0, 20.0, 50.0] {
-                for yaw in (150..=230).step_by(5) {
-                    for pitch in [-60, -45, -30, -15, 0, 15] {
-                        for roll in [-30, -15, 0, 15, 30] {
-                            let test_lat = expected_lat + lat_off;
-                            let test_lon = expected_lon + lon_off;
-
-                            let cam_enu = lla_to_enu(test_lat, test_lon, alt, ref_lat, ref_lon, ref_alt);
-                            let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, roll as f64);
-
-                            let mut sse = 0.0;
-                            let mut valid = 0;
-                            for &(lat, lon, pt_alt, u_actual, v_actual) in &correspondences {
-                                let pt_enu = lla_to_enu(lat, lon, pt_alt, ref_lat, ref_lon, ref_alt);
-                                if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
-                                    sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
-                                    valid += 1;
-                                }
-                            }
-
-                            if valid == correspondences.len() {
-                                let rmse = (sse / n).sqrt();
-                                if rmse < best_rmse {
-                                    best_rmse = rmse;
-                                    best_params = (test_lat, test_lon, alt, yaw as f64, pitch as f64, roll as f64);
-                                    if rmse < 200.0 {
-                                        eprintln!("  Found: rmse={:.1}, lat={:.6}, lon={:.6}, alt={:.0}, yaw={}, pitch={}, roll={}",
-                                                  rmse, test_lat, test_lon, alt, yaw, pitch, roll);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    eprintln!("\nBest near expected: RMSE={:.1}px", best_rmse);
-    eprintln!("Params: lat={:.6}, lon={:.6}, alt={:.1}, yaw={:.1}, pitch={:.1}, roll={:.1}",
-              best_params.0, best_params.1, best_params.2, best_params.3, best_params.4, best_params.5);
-}
-
-/// Search for the correct camera position
-#[test]
-fn search_correct_camera_position() {
-    use crate::geo::lla_to_enu;
-    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
-
-    let image_width: f64 = 4032.0;
-    let image_height: f64 = 3024.0;
-    let focal_px = (27.0 / 36.0) * image_width;
-
-    let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
-        (51.908407170731785, 4.4884439705492705, 133.0, 1637.7157907279086, 1558.9968717392005),
-        (51.90653193209267, 4.487362504005433, 149.0, 1352.0297597086417, 1673.15297466213),
-        (51.90745197954069, 4.489266872406007, 98.0, 829.0744946310194, 1867.6816573522428),
-        (51.91639663828099, 4.491353631019593, 4.2, 2223.9808984053425, 2629.296445215229),
-        (51.90680331495428, 4.489020109176637, 150.0, 859.3446734750117, 1635.091125679091),
-        (51.91016236948932, 4.488526582717896, 17.0, 1502.969810172715, 2309.3149769078573),
-        (51.90727657626541, 4.48969602584839, 92.0, 619.9160985842653, 1891.2981323925628),
-    ];
-
-    let n = correspondences.len() as f64;
-    let ref_lat = correspondences.iter().map(|c| c.0).sum::<f64>() / n;
-    let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
-    let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
-
-    let intr = CameraIntrinsics {
-        focal_px, cx: image_width / 2.0, cy: image_height / 2.0, k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
-    };
-
-    eprintln!("\n=== Searching for camera position with RMSE < 10px ===");
-
-    let mut best_rmse = 1e9;
-    let mut best_params: (f64, f64, f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
-    // Wide search
-    for lat_off in [-0.015, -0.01, -0.005, 0.0, 0.005, 0.01, 0.015] {
-        for lon_off in [-0.015, -0.01, -0.005, 0.0, 0.005, 0.01, 0.015] {
-            for alt in [5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 150.0, 200.0, 250.0, 300.0, 350.0, 400.0] {
-                for yaw in (0..360).step_by(10) {
-                    for pitch in [-80, -60, -45, -30, -15, 0, 15, 30] {
-                        for roll in [-45, -30, -15, 0, 15, 30, 45] {
-                            let test_lat = ref_lat + lat_off;
-                            let test_lon = ref_lon + lon_off;
-
-                            let cam_enu = lla_to_enu(test_lat, test_lon, alt, ref_lat, ref_lon, ref_alt);
-                            let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, roll as f64);
-
-                            let mut sse = 0.0;
-                            let mut valid = 0;
-                            for &(lat, lon, pt_alt, u_actual, v_actual) in &correspondences {
-                                let pt_enu = lla_to_enu(lat, lon, pt_alt, ref_lat, ref_lon, ref_alt);
-                                if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
-                                    sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
-                                    valid += 1;
-                                }
-                            }
-
-                            if valid == correspondences.len() {
-                                let rmse = (sse / n).sqrt();
-                                if rmse < best_rmse {
-                                    best_rmse = rmse;
-                                    best_params = (test_lat, test_lon, alt, yaw as f64, pitch as f64, roll as f64);
-                                    if rmse < 50.0 {
-                                        eprintln!("Found: lat={:.6}, lon={:.6}, alt={:.0}, yaw={}, pitch={}, roll={}, RMSE={:.1}px",
-                                                  test_lat, test_lon, alt, yaw, pitch, roll, rmse);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    eprintln!("\n=== BEST RESULT ===");
-    eprintln!("Position: lat={:.10}, lon={:.10}, alt={:.0}m", best_params.0, best_params.1, best_params.2);
-    eprintln!("Orientation: yaw={:.0}°, pitch={:.0}°, roll={:.0}°", best_params.3, best_params.4, best_params.5);
-    eprintln!("RMSE: {:.2}px", best_rmse);
-    
-    // Compare to expected
-    let expected_lat = 51.916810141229455;
-    let expected_lon = 4.491832827359327;
-    let dist = 111320.0 * ((best_params.0 - expected_lat).powi(2) + 
-                           ((best_params.1 - expected_lon) * expected_lat.to_radians().cos()).powi(2)).sqrt();
-    eprintln!("Distance to expected position: {:.0}m", dist);
-}
-
-/// Search with distortion enabled
-#[test]
-fn search_with_distortion() {
-    use crate::geo::lla_to_enu;
-    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
-
-    let image_width: f64 = 4032.0;
-    let image_height: f64 = 3024.0;
-    let focal_px = (27.0 / 36.0) * image_width;
-
-    let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
-        (51.908407170731785, 4.4884439705492705, 133.0, 1637.7157907279086, 1558.9968717392005),
-        (51.90653193209267, 4.487362504005433, 149.0, 1352.0297597086417, 1673.15297466213),
-        (51.90745197954069, 4.489266872406007, 98.0, 829.0744946310194, 1867.6816573522428),
-        (51.91639663828099, 4.491353631019593, 4.2, 2223.9808984053425, 2629.296445215229),
-        (51.90680331495428, 4.489020109176637, 150.0, 859.3446734750117, 1635.091125679091),
-        (51.91016236948932, 4.488526582717896, 17.0, 1502.969810172715, 2309.3149769078573),
-        (51.90727657626541, 4.48969602584839, 92.0, 619.9160985842653, 1891.2981323925628),
-    ];
-
-    let n = correspondences.len() as f64;
-    let ref_lat = correspondences.iter().map(|c| c.0).sum::<f64>() / n;
-    let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
-    let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
-
-    eprintln!("\n=== Search around expected position WITH distortion ===");
+    let focal_px = 3024.0;
 
     // Expected camera
-    let expected_lat = 51.916810141229455;
-    let expected_lon = 4.491832827359327;
+    let cam_lat = 51.916810141229455;
+    let cam_lon = 4.491832827359327;
+    let cam_alt = 10.0;
 
+    // Reference point
+    let ref_lat = 51.909004283;
+    let ref_lon = 4.489095671;
+    let ref_alt = 91.886;
+
+    // pt0 - one of the world points
+    let pt0_lat = 51.908407170731785;
+    let pt0_lon = 4.4884439705492705;
+    let pt0_alt = 133.0;
+    let pt0_u_actual = 1637.72;
+    let pt0_v_actual = 1559.00;
+
+    eprintln!("\n=== TRACE PROJECTION ===");
+
+    // Convert to ENU
+    let cam_enu = lla_to_enu(cam_lat, cam_lon, cam_alt, ref_lat, ref_lon, ref_alt);
+    let pt0_enu = lla_to_enu(pt0_lat, pt0_lon, pt0_alt, ref_lat, ref_lon, ref_alt);
+
+    eprintln!("Camera ENU: ({:.1}, {:.1}, {:.1})", cam_enu[0], cam_enu[1], cam_enu[2]);
+    eprintln!("Point0 ENU: ({:.1}, {:.1}, {:.1})", pt0_enu[0], pt0_enu[1], pt0_enu[2]);
+
+    // Delta (point - camera)
+    let dp = [pt0_enu[0] - cam_enu[0], pt0_enu[1] - cam_enu[1], pt0_enu[2] - cam_enu[2]];
+    eprintln!("Delta (point - camera): ({:.1}, {:.1}, {:.1})", dp[0], dp[1], dp[2]);
+    eprintln!("  (E={:.1} means point is EAST of camera)", dp[0]);
+    eprintln!("  (N={:.1} means point is SOUTH of camera)", dp[1]);
+    eprintln!("  (U={:.1} means point is ABOVE camera)", dp[2]);
+
+    // Try yaw=195 (facing South-Southwest)
+    let yaw = 195.0;
+    let pitch = 7.0;  // looking slightly up
+    let roll = 0.0;
+
+    let rot = rotation_enu_to_cam(yaw, pitch, roll);
+    eprintln!("\nRotation matrix (yaw={}, pitch={}):", yaw, pitch);
+    for i in 0..3 {
+        eprintln!("  [{:8.4}, {:8.4}, {:8.4}]", rot[i][0], rot[i][1], rot[i][2]);
+    }
+
+    // Transform to camera frame
+    let cam_coords = mat3_vec(&rot, &dp);
+    eprintln!("\nCamera frame coords: ({:.1}, {:.1}, {:.1})", cam_coords[0], cam_coords[1], cam_coords[2]);
+    eprintln!("  (X={:.1} positive means RIGHT)", cam_coords[0]);
+    eprintln!("  (Y={:.1} positive means DOWN)", cam_coords[1]);
+    eprintln!("  (Z={:.1} positive means FORWARD)", cam_coords[2]);
+
+    if cam_coords[2] <= 0.0 {
+        eprintln!("\nPoint is BEHIND camera!");
+    } else {
+        // Project
+        let xn = cam_coords[0] / cam_coords[2];
+        let yn = cam_coords[1] / cam_coords[2];
+        eprintln!("\nNormalized coords: xn={:.4}, yn={:.4}", xn, yn);
+
+        let u = focal_px * xn + image_width / 2.0;
+        let v = focal_px * yn + image_height / 2.0;
+        eprintln!("Projected pixel: u={:.0}, v={:.0}", u, v);
+        eprintln!("Actual pixel:    u={:.0}, v={:.0}", pt0_u_actual, pt0_v_actual);
+        eprintln!("Error: {:.0}px", ((u - pt0_u_actual).powi(2) + (v - pt0_v_actual).powi(2)).sqrt());
+    }
+}
+
+/// Test with different camera altitudes
+#[test]
+fn test_maas_with_different_altitudes() {
+    use crate::geo::lla_to_enu;
+    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
+
+    let image_width: f64 = 4032.0;
+    let image_height: f64 = 3024.0;
+    let focal_px = 3024.0;
+
+    let cam_lat = 51.916810141229455;
+    let cam_lon = 4.491832827359327;
+
+    let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
+        (51.908407170731785, 4.4884439705492705, 133.0, 1637.72, 1559.00),
+        (51.90653193209267, 4.487362504005433, 149.0, 1352.03, 1673.15),
+        (51.90745197954069, 4.489266872406007, 98.0, 829.07, 1867.68),
+        (51.91639663828099, 4.491353631019593, 4.2, 2223.98, 2629.30),
+        (51.90680331495428, 4.489020109176637, 150.0, 859.34, 1635.09),
+        (51.91016236948932, 4.488526582717896, 17.0, 1502.97, 2309.31),
+        (51.90727657626541, 4.48969602584839, 92.0, 619.92, 1891.30),
+    ];
+
+    let n = correspondences.len() as f64;
+    let ref_lat = correspondences.iter().map(|c| c.0).sum::<f64>() / n;
+    let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
+    let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
+
+    eprintln!("\n=== TESTING DIFFERENT ALTITUDES ===");
+
+    for cam_alt in [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 50.0] {
+        let intr = CameraIntrinsics {
+            focal_px, cx: image_width / 2.0, cy: image_height / 2.0, 
+            k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
+        };
+
+        let cam_enu = lla_to_enu(cam_lat, cam_lon, cam_alt, ref_lat, ref_lon, ref_alt);
+        
+        // Search for best yaw and pitch at this altitude
+        let mut best_rmse = 1e9;
+        let mut best_yaw = 0.0;
+        let mut best_pitch = 0.0;
+        
+        for yaw in (180..=220).step_by(1) {
+            for pitch in -20..=20 {
+                let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, 0.0);
+                
+                let mut sse = 0.0;
+                let mut valid = 0;
+                for &(lat, lon, alt, u_actual, v_actual) in &correspondences {
+                    let pt_enu = lla_to_enu(lat, lon, alt, ref_lat, ref_lon, ref_alt);
+                    if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
+                        sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
+                        valid += 1;
+                    }
+                }
+                
+                if valid == correspondences.len() {
+                    let rmse = (sse / n).sqrt();
+                    if rmse < best_rmse {
+                        best_rmse = rmse;
+                        best_yaw = yaw as f64;
+                        best_pitch = pitch as f64;
+                    }
+                }
+            }
+        }
+        
+        eprintln!("alt={:.0}m: best yaw={:.0}°, pitch={:.0}°, RMSE={:.1}px", 
+                  cam_alt, best_yaw, best_pitch, best_rmse);
+    }
+}
+
+/// Test without pt0
+#[test]
+fn test_maas_without_pt0() {
+    use crate::geo::lla_to_enu;
+    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
+
+    let image_width: f64 = 4032.0;
+    let image_height: f64 = 3024.0;
+    let focal_px = 3024.0;
+
+    let cam_lat = 51.916810141229455;
+    let cam_lon = 4.491832827359327;
+    let cam_alt = 10.0;
+
+    // Exclude pt0
+    let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
+        //(51.908407170731785, 4.4884439705492705, 133.0, 1637.72, 1559.00),  // pt0 excluded
+        (51.90653193209267, 4.487362504005433, 149.0, 1352.03, 1673.15),
+        (51.90745197954069, 4.489266872406007, 98.0, 829.07, 1867.68),
+        (51.91639663828099, 4.491353631019593, 4.2, 2223.98, 2629.30),
+        (51.90680331495428, 4.489020109176637, 150.0, 859.34, 1635.09),
+        (51.91016236948932, 4.488526582717896, 17.0, 1502.97, 2309.31),
+        (51.90727657626541, 4.48969602584839, 92.0, 619.92, 1891.30),
+    ];
+
+    let n = correspondences.len() as f64;
+    let ref_lat = correspondences.iter().map(|c| c.0).sum::<f64>() / n;
+    let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
+    let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
+
+    let intr = CameraIntrinsics {
+        focal_px, cx: image_width / 2.0, cy: image_height / 2.0, 
+        k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
+    };
+
+    let cam_enu = lla_to_enu(cam_lat, cam_lon, cam_alt, ref_lat, ref_lon, ref_alt);
+
+    eprintln!("\n=== TEST WITHOUT PT0 ===");
+    
     let mut best_rmse = 1e9;
-    let mut best_params: (f64, f64, f64, f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    let mut best_params = (0.0, 0.0);
+    
+    for yaw in (180..=220).step_by(1) {
+        for pitch in -30..=30 {
+            let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, 0.0);
+            
+            let mut sse = 0.0;
+            let mut valid = 0;
+            for &(lat, lon, alt, u_actual, v_actual) in &correspondences {
+                let pt_enu = lla_to_enu(lat, lon, alt, ref_lat, ref_lon, ref_alt);
+                if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
+                    sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
+                    valid += 1;
+                }
+            }
+            
+            if valid == correspondences.len() {
+                let rmse = (sse / n).sqrt();
+                if rmse < best_rmse {
+                    best_rmse = rmse;
+                    best_params = (yaw as f64, pitch as f64);
+                }
+            }
+        }
+    }
+    
+    eprintln!("Best: yaw={:.0}°, pitch={:.0}°, RMSE={:.1}px", best_params.0, best_params.1, best_rmse);
+    
+    // Show individual errors
+    let rot = rotation_enu_to_cam(best_params.0, best_params.1, 0.0);
+    eprintln!("\nIndividual errors:");
+    for (i, &(lat, lon, alt, u_actual, v_actual)) in correspondences.iter().enumerate() {
+        let pt_enu = lla_to_enu(lat, lon, alt, ref_lat, ref_lon, ref_alt);
+        if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
+            let err = ((u - u_actual).powi(2) + (v - v_actual).powi(2)).sqrt();
+            eprintln!("  pt{}: err={:.0}px", i+1, err);  // pt1 through pt6
+        }
+    }
+}
 
-    // Search around expected with various distortion values
-    for lat_off in [-0.002, -0.001, 0.0, 0.001, 0.002] {
-        for lon_off in [-0.002, -0.001, 0.0, 0.001, 0.002] {
-            for alt in [5.0, 10.0, 20.0, 50.0, 100.0, 150.0, 200.0] {
-                for yaw in (150..=230).step_by(5) {
-                    for pitch in [-60, -45, -30, -15, 0, 15] {
-                        for k1 in [-0.2, -0.1, 0.0, 0.1, 0.2] {
-                            let test_lat = expected_lat + lat_off;
-                            let test_lon = expected_lon + lon_off;
+/// Test with different principal points
+#[test]
+fn test_maas_principal_point() {
+    use crate::geo::lla_to_enu;
+    use crate::projection::{rotation_enu_to_cam, project_point, CameraIntrinsics};
 
-                            let intr = CameraIntrinsics {
-                                focal_px, 
-                                cx: image_width / 2.0, 
-                                cy: image_height / 2.0, 
-                                k1, 
-                                k2: 0.0, 
-                                p1: 0.0, 
-                                p2: 0.0,
-                            };
+    let image_width: f64 = 4032.0;
+    let image_height: f64 = 3024.0;
+    let focal_px = 3024.0;
 
-                            let cam_enu = lla_to_enu(test_lat, test_lon, alt, ref_lat, ref_lon, ref_alt);
-                            let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, 0.0);
+    let cam_lat = 51.916810141229455;
+    let cam_lon = 4.491832827359327;
+    let cam_alt = 10.0;
 
-                            let mut sse = 0.0;
-                            let mut valid = 0;
-                            for &(lat, lon, pt_alt, u_actual, v_actual) in &correspondences {
-                                let pt_enu = lla_to_enu(lat, lon, pt_alt, ref_lat, ref_lon, ref_alt);
-                                if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
-                                    sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
-                                    valid += 1;
-                                }
-                            }
+    let correspondences: Vec<(f64, f64, f64, f64, f64)> = vec![
+        (51.908407170731785, 4.4884439705492705, 133.0, 1637.72, 1559.00),
+        (51.90653193209267, 4.487362504005433, 149.0, 1352.03, 1673.15),
+        (51.90745197954069, 4.489266872406007, 98.0, 829.07, 1867.68),
+        (51.91639663828099, 4.491353631019593, 4.2, 2223.98, 2629.30),
+        (51.90680331495428, 4.489020109176637, 150.0, 859.34, 1635.09),
+        (51.91016236948932, 4.488526582717896, 17.0, 1502.97, 2309.31),
+        (51.90727657626541, 4.48969602584839, 92.0, 619.92, 1891.30),
+    ];
 
-                            if valid == correspondences.len() {
-                                let rmse = (sse / n).sqrt();
-                                if rmse < best_rmse {
-                                    best_rmse = rmse;
-                                    best_params = (test_lat, test_lon, alt, yaw as f64, pitch as f64, 0.0, k1);
-                                    if rmse < 100.0 {
-                                        eprintln!("Found: lat={:.6}, lon={:.6}, alt={:.0}, yaw={}, pitch={}, k1={:.2}, RMSE={:.1}px",
-                                                  test_lat, test_lon, alt, yaw, pitch, k1, rmse);
-                                    }
-                                }
-                            }
+    let n = correspondences.len() as f64;
+    let ref_lat = correspondences.iter().map(|c| c.0).sum::<f64>() / n;
+    let ref_lon = correspondences.iter().map(|c| c.1).sum::<f64>() / n;
+    let ref_alt = correspondences.iter().map(|c| c.2).sum::<f64>() / n;
+
+    let cam_enu = lla_to_enu(cam_lat, cam_lon, cam_alt, ref_lat, ref_lon, ref_alt);
+
+    eprintln!("\n=== TEST PRINCIPAL POINT ===");
+    
+    let mut best_rmse = 1e9;
+    let mut best_params = (0.0, 0.0, 0.0, 0.0);
+    
+    // Standard center
+    let cx_center = image_width / 2.0;
+    let cy_center = image_height / 2.0;
+    
+    // Search cx, cy offsets
+    for cx_off in [-200.0, -100.0, -50.0, 0.0, 50.0, 100.0, 200.0] {
+        for cy_off in [-200.0, -100.0, -50.0, 0.0, 50.0, 100.0, 200.0] {
+            let intr = CameraIntrinsics {
+                focal_px, 
+                cx: cx_center + cx_off, 
+                cy: cy_center + cy_off, 
+                k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
+            };
+            
+            for yaw in (180..=220).step_by(2) {
+                for pitch in -30..=30 {
+                    let rot = rotation_enu_to_cam(yaw as f64, pitch as f64, 0.0);
+                    
+                    let mut sse = 0.0;
+                    let mut valid = 0;
+                    for &(lat, lon, alt, u_actual, v_actual) in &correspondences {
+                        let pt_enu = lla_to_enu(lat, lon, alt, ref_lat, ref_lon, ref_alt);
+                        if let Some((u, v)) = project_point(pt_enu, cam_enu, &rot, &intr) {
+                            sse += (u - u_actual).powi(2) + (v - v_actual).powi(2);
+                            valid += 1;
+                        }
+                    }
+                    
+                    if valid == correspondences.len() {
+                        let rmse = (sse / n).sqrt();
+                        if rmse < best_rmse {
+                            best_rmse = rmse;
+                            best_params = (yaw as f64, pitch as f64, cx_off, cy_off);
                         }
                     }
                 }
             }
         }
     }
+    
+    eprintln!("Best: yaw={:.0}°, pitch={:.0}°, cx_off={:.0}, cy_off={:.0}, RMSE={:.1}px", 
+              best_params.0, best_params.1, best_params.2, best_params.3, best_rmse);
+}
 
-    eprintln!("\n=== BEST near expected ===");
-    eprintln!("Position: lat={:.10}, lon={:.10}, alt={:.0}m", best_params.0, best_params.1, best_params.2);
-    eprintln!("Orientation: yaw={:.0}°, pitch={:.0}°", best_params.3, best_params.4);
-    eprintln!("Distortion: k1={:.2}", best_params.6);
-    eprintln!("RMSE: {:.2}px", best_rmse);
+/// Test initializing at the expected position
+#[test]
+fn test_maas_init_at_expected() {
+    use crate::geo::lla_to_enu;
+    use crate::projection::CameraIntrinsics;
+    use crate::optimizer::levenberg_marquardt;
+    use crate::types::{Corr, Pixel, WorldLla};
+    
+    let image_width: f64 = 4032.0;
+    let image_height: f64 = 3024.0;
+    let focal_px = 3024.0;
+
+    let correspondences: Vec<Corr> = vec![
+        Corr { id: "pt0".to_string(), enabled: Some(true),
+               pixel: Pixel { u: 1637.72, v: 1559.00, sigma_px: Some(1.0) },
+               world: WorldLla { lat: 51.908407170731785, lon: 4.4884439705492705, alt: Some(133.0) }},
+        Corr { id: "pt1".to_string(), enabled: Some(true),
+               pixel: Pixel { u: 1352.03, v: 1673.15, sigma_px: Some(1.0) },
+               world: WorldLla { lat: 51.90653193209267, lon: 4.487362504005433, alt: Some(149.0) }},
+        Corr { id: "pt2".to_string(), enabled: Some(true),
+               pixel: Pixel { u: 829.07, v: 1867.68, sigma_px: Some(1.0) },
+               world: WorldLla { lat: 51.90745197954069, lon: 4.489266872406007, alt: Some(98.0) }},
+        Corr { id: "pt3".to_string(), enabled: Some(true),
+               pixel: Pixel { u: 2223.98, v: 2629.30, sigma_px: Some(1.0) },
+               world: WorldLla { lat: 51.91639663828099, lon: 4.491353631019593, alt: Some(4.2) }},
+        Corr { id: "pt4".to_string(), enabled: Some(true),
+               pixel: Pixel { u: 859.34, v: 1635.09, sigma_px: Some(1.0) },
+               world: WorldLla { lat: 51.90680331495428, lon: 4.489020109176637, alt: Some(150.0) }},
+        Corr { id: "pt5".to_string(), enabled: Some(true),
+               pixel: Pixel { u: 1502.97, v: 2309.31, sigma_px: Some(1.0) },
+               world: WorldLla { lat: 51.91016236948932, lon: 4.488526582717896, alt: Some(17.0) }},
+        Corr { id: "pt6".to_string(), enabled: Some(true),
+               pixel: Pixel { u: 619.92, v: 1891.30, sigma_px: Some(1.0) },
+               world: WorldLla { lat: 51.90727657626541, lon: 4.48969602584839, alt: Some(92.0) }},
+    ];
+
+    let n = correspondences.len() as f64;
+    let ref_lat = correspondences.iter().map(|c| c.world.lat).sum::<f64>() / n;
+    let ref_lon = correspondences.iter().map(|c| c.world.lon).sum::<f64>() / n;
+    let ref_alt = correspondences.iter().map(|c| c.world.alt.unwrap_or(0.0)).sum::<f64>() / n;
+
+    // Convert to ENU correspondences
+    let corrs: Vec<_> = correspondences.iter().map(|c| {
+        let enu = lla_to_enu(c.world.lat, c.world.lon, c.world.alt.unwrap_or(0.0), ref_lat, ref_lon, ref_alt);
+        crate::optimizer::EnuCorrespondence {
+            enu: [enu[0], enu[1], enu[2]],
+            pixel: [c.pixel.u, c.pixel.v],
+            sigma: 1.0,
+        }
+    }).collect();
+
+    // Expected camera position
+    let exp_lat = 51.916810141229455;
+    let exp_lon = 4.491832827359327;
+    let exp_alt = 10.0;
+    let exp_enu = lla_to_enu(exp_lat, exp_lon, exp_alt, ref_lat, ref_lon, ref_alt);
+
+    eprintln!("\n=== TEST INIT AT EXPECTED POSITION ===");
+    eprintln!("Expected ENU: ({:.1}, {:.1}, {:.1})", exp_enu[0], exp_enu[1], exp_enu[2]);
+
+    let intr = CameraIntrinsics {
+        focal_px, cx: image_width / 2.0, cy: image_height / 2.0,
+        k1: 0.0, k2: 0.0, p1: 0.0, p2: 0.0,
+    };
+
+    // Initialize at expected position with various orientations
+    for yaw in [195.0, 200.0, 205.0, 210.0] {
+        for pitch in [5.0, 10.0, 15.0] {
+            let init: [f64; 10] = [
+                exp_enu[0], exp_enu[1], exp_enu[2],  // position
+                yaw, pitch, 0.0,                      // orientation
+                0.0, 0.0, 0.0, 0.0,                   // distortion
+            ];
+            
+            let result = levenberg_marquardt(init, &corrs, &intr, None, [0.0, 0.0, 0.0, 0.0], 7, 100);
+            
+            eprintln!("Init yaw={:.0}, pitch={:.0}: final cost={:.0}, converged?={}",
+                      yaw, pitch, result.cost, result.iterations < 100);
+            eprintln!("  Final pos: ({:.1}, {:.1}, {:.1})",
+                      result.params[0], result.params[1], result.params[2]);
+            eprintln!("  Final orient: yaw={:.1}, pitch={:.1}, roll={:.1}",
+                      result.params[3], result.params[4], result.params[5]);
+            
+            // How far did it move from expected?
+            let moved = ((result.params[0] - exp_enu[0]).powi(2) +
+                         (result.params[1] - exp_enu[1]).powi(2) +
+                         (result.params[2] - exp_enu[2]).powi(2)).sqrt();
+            eprintln!("  Moved: {:.0}m from expected", moved);
+        }
+    }
 }

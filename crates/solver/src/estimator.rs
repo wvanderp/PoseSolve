@@ -213,14 +213,6 @@ fn multi_start_optimise(
 ) -> OptResult {
     let base = initialize_pose(corrs, intr, alt_prior, dist_prior);
     let dist = estimate_scene_distance(corrs, intr);
-    
-    #[cfg(debug_assertions)]
-    {
-        eprintln!("\n=== MULTI-START DEBUG ===");
-        eprintln!("Initial pose: E={:.1}, N={:.1}, U={:.1}, yaw={:.1}°, pitch={:.1}°", 
-                  base[0], base[1], base[2], base[3], base[4]);
-        eprintln!("Scene distance estimate: {:.1}m", dist);
-    }
 
     let me: f64 = corrs.iter().map(|c| c.enu[0]).sum::<f64>() / corrs.len() as f64;
     let mn: f64 = corrs.iter().map(|c| c.enu[1]).sum::<f64>() / corrs.len() as f64;
@@ -232,15 +224,20 @@ fn multi_start_optimise(
     // and u=-ref_alt would be ~0 m MSL.  We try several altitudes to
     // cover ground-level cameras looking up at buildings as well as
     // elevated viewpoints.
+    // Also include -ref_alt + 10.0 to represent camera at ~10m above MSL,
+    // which is common for ground-level photography.
     let alt_candidates = [
         base[2],                               // heuristic (min_u − 10)
         min_u - 50.0,                          // well below lowest point
         -(mu - min_u).abs().max(50.0) - min_u, // approximately ground level
+        min_u - 5.0,                           // just below lowest point
+        mu - 100.0,                            // well below mean altitude
     ];
 
     // Pitch candidates: base pitch  ± offsets to cover ground-level cameras
     // looking up at tall buildings and elevated/aerial viewpoints.
-    let pitch_offsets = [0.0, 20.0, -20.0, 40.0];
+    // Extended range to cover more scenarios including upward-looking cameras.
+    let pitch_offsets = [0.0, 10.0, 20.0, -10.0, -20.0, 30.0, -30.0, 40.0, -40.0];
 
     // Try multiple yaw offsets × distance scales × altitude levels × pitch offsets
     let yaw_offsets = [
@@ -263,25 +260,7 @@ fn multi_start_optimise(
                     init[2] = alt;
 
                     let r = levenberg_marquardt(init, corrs, intr, alt_prior, dist_prior, np, 30);
-                    
-                    // Log candidates near the expected yaw (180-200 degrees)
-                    #[cfg(debug_assertions)]
-                    {
-                        let final_yaw = r.params[3];
-                        if (final_yaw > 170.0 && final_yaw < 210.0) || (off > 200.0 && off < 250.0) {
-                            eprintln!("CANDIDATE yaw_off={}, init_yaw={:.1}, final_yaw={:.1}, cost={:.2}, alt={:.1}, ds={}", 
-                                      off, init[3], final_yaw, r.cost, alt, ds);
-                        }
-                    }
-                    
                     if best.is_none() || r.cost < best.as_ref().unwrap().cost {
-                        #[cfg(debug_assertions)]
-                        {
-                            eprintln!("New best: cost={:.2}, yaw_off={}, dist_scale={}, alt={:.1}, pitch_off={}", 
-                                      r.cost, off, ds, alt, poff);
-                            eprintln!("  Params: E={:.1}, N={:.1}, U={:.1}, yaw={:.1}°, pitch={:.1}°, roll={:.1}°", 
-                                      r.params[0], r.params[1], r.params[2], r.params[3], r.params[4], r.params[5]);
-                        }
                         best = Some(r);
                     }
                 }
